@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: hiswork-postgres
+    environment:
+      POSTGRES_DB: hiswork
+      POSTGRES_USER: hiswork_user
+      POSTGRES_PASSWORD: hiswork_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - hiswork-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hiswork-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hiswork
+      - SPRING_DATASOURCE_USERNAME=hiswork_user
+      - SPRING_DATASOURCE_PASSWORD=hiswork_password
+    depends_on:
+      - postgres
+    networks:
+      - hiswork-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hiswork-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - hiswork-network
+
+volumes:
+  postgres_data:
+
+networks:
+  hiswork-network:
+    driver: bridge 

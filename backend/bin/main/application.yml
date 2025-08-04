@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: hiswork-backend
+  
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+      enabled: true
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hiswork
+    username: hiswork_user
+    password: hiswork_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-test-query: SELECT 1
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+  
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    secret: hiswork-secret-key-for-jwt-token-generation-must-be-at-least-512-bits-long-for-HS512-algorithm-security-requirements-compliance
+    expiration: 86400000 # 24시간 (밀리초)
+  
+  file:
+    upload-dir: ./uploads
+    pdf-templates-dir: ./uploads/pdf-templates
+    generated-pdfs-dir: ./uploads/generated-pdfs
+
+logging:
+  level:
+    com.hiswork.backend.service.PdfService: DEBUG
+    com.hiswork.backend.controller.DocumentController: DEBUG
+    com.hiswork.backend.service.DocumentService: DEBUG
+    root: INFO 
