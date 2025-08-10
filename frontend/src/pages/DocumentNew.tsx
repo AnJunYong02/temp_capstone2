@@ -355,7 +355,7 @@ const DocumentNew: React.FC = () => {
                         <h5 className="text-sm font-medium text-gray-700 mb-2">📸 PDF 미리보기</h5>
                         <div className="border rounded-lg overflow-hidden">
                           <img
-                            src={`http://localhost:8080/api/files/pdf-template-images/${selectedTemplate.pdfImagePath.split('/').pop()}`}
+                            src={`http://localhost:8080/${selectedTemplate.pdfImagePath}`}
                             alt="PDF 템플릿 미리보기"
                             className="w-full max-w-md mx-auto"
                             style={{ maxHeight: '400px', objectFit: 'contain' }}

@@ -22,4 +22,6 @@ public class TemplateCreateRequest {
     private String pdfFilePath;
     
     private String pdfImagePath;
+    
+    private String coordinateFields; // JSON 형태의 좌표 필드 정보
 } 

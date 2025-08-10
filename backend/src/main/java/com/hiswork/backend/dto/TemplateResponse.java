@@ -20,6 +20,7 @@ public class TemplateResponse {
     private Boolean isPublic;
     private String pdfFilePath;
     private String pdfImagePath;
+    private String coordinateFields;  // 추가
     private UUID createdById;
     private String createdByName;
     private LocalDateTime createdAt;
@@ -33,6 +34,7 @@ public class TemplateResponse {
                 .isPublic(template.getIsPublic())
                 .pdfFilePath(template.getPdfFilePath())
                 .pdfImagePath(template.getPdfImagePath())
+                .coordinateFields(template.getCoordinateFields())  // 추가
                 .createdById(template.getCreatedBy().getId())
                 .createdByName(template.getCreatedBy().getName())
                 .createdAt(template.getCreatedAt())

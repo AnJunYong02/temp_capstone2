@@ -27,7 +27,6 @@ export interface CoordinateField {
 interface PdfViewerProps {
   pdfImageUrl: string;
   coordinateFields: CoordinateField[];
-  coordinateData?: Record<string, any>; // 필드 값 데이터
   onCoordinateFieldsChange: (fields: CoordinateField[]) => void;
   onFieldSelect?: (field: CoordinateField | null) => void; // 필드 선택 이벤트
   selectedFieldId?: string | null; // 현재 선택된 필드 ID
@@ -71,7 +70,6 @@ interface PdfViewerProps {
 const PdfViewer: React.FC<PdfViewerProps> = ({
   pdfImageUrl,
   coordinateFields,
-  coordinateData = {},
   onCoordinateFieldsChange,
   onFieldSelect,
   selectedFieldId,
@@ -389,11 +387,11 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           label: field.label,
           type: field.type,
           x, y, width, height,
-          value: coordinateData[field.id] || field.value || ''
+          value: field.value || ''
         });
         
         const isSelected = field.id === selectedFieldId;
-        const fieldValue = coordinateData[field.id] || field.value || '';
+        const fieldValue = field.value || '';
         const hasValue = fieldValue && fieldValue.trim() !== '';
 
         // showFieldUI가 true일 때만 필드 UI 요소들 표시 (배경, 테두리, 라벨 등)

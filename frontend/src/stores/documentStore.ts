@@ -7,6 +7,9 @@ export interface DocumentData {
   content?: string;
   createdAt?: string;
   signatures?: Record<string, string>; // 검토자별 서명 데이터 (email -> base64)
+  // 필드 정의와 데이터
+  coordinateFields?: any[]; // 사용자가 추가한 필드들
+  signatureFields?: any[]; // 서명 필드들
 }
 
 export interface TaskInfo {

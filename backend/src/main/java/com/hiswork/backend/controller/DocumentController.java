@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Optional;
-import java.util.UUID;
 import com.hiswork.backend.service.PdfService;
 
 @Slf4j
@@ -211,13 +210,15 @@ public class DocumentController {
             // 생성된 PDF 파일을 바이트 배열로 읽기
             byte[] pdfBytes = Files.readAllBytes(Paths.get(completedPdfPath));
             
-            // 파일명 생성 (한글 인코딩 문제 방지를 위해 영문 사용)
-            String filename = "document_" + document.getId() + ".pdf";
+            // 파일명 설정 (한글 파일명 지원)
+            String filename = document.getTemplate().getName() + "_완성본.pdf";
+            String encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
+                .replaceAll("\\+", "%20");
             
             // PDF 파일 반환
             return ResponseEntity.ok()
-                    .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
                     .header("Content-Type", "application/pdf")
+                    .header("Content-Disposition", "attachment; filename*=UTF-8''" + encodedFilename)
                     .body(pdfBytes);
             
         } catch (Exception e) {

@@ -83,16 +83,7 @@ const TemplateList: React.FC = () => {
                       </p>
                     )}
 
-                    {/* 템플릿 정보 */}
-                    <div className="mb-4 text-sm text-gray-500">
-                      <div className="space-y-1">
-                        <div>📄 PDF 기반 템플릿</div>
-                        <div>📍 좌표 필드: {template.coordinateFields?.length || 0}개</div>
-                        <div className="inline-block px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
-                          PDF 템플릿
-                        </div>
-                      </div>
-                    </div>
+
 
                     {/* 메타 정보 */}
                     <div className="mb-4 text-xs text-gray-400">

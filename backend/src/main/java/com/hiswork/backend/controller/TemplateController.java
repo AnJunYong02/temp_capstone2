@@ -48,6 +48,7 @@ public class TemplateController {
                     .isPublic(request.getIsPublic())
                     .pdfFilePath(request.getPdfFilePath())
                     .pdfImagePath(request.getPdfImagePath())
+                    .coordinateFields(request.getCoordinateFields())  // 추가
                     .createdBy(user)
                     .build();
             template = templateService.savePdfTemplate(template);
@@ -68,6 +69,7 @@ public class TemplateController {
             @RequestParam("name") String templateName,
             @RequestParam(value = "description", required = false) String description,
             @RequestParam(value = "isPublic", defaultValue = "false") Boolean isPublic,
+            @RequestParam(value = "coordinateFields", required = false) String coordinateFields,
             HttpServletRequest httpRequest) {
         
         try {
@@ -83,6 +85,7 @@ public class TemplateController {
                     .isPublic(isPublic)
                     .pdfFilePath(uploadResult.getPdfFilePath())
                     .pdfImagePath(uploadResult.getPdfImagePath())
+                    .coordinateFields(coordinateFields)  // coordinateFields 추가
                     .createdBy(user)
                     .build();
             

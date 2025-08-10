@@ -10,6 +10,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -37,7 +39,11 @@ public class Template {
     private String pdfImagePath;
     
     @Column(columnDefinition = "TEXT")
-    private String coordinateFields; // JSON 형태로 저장된 좌표 필드 정보
+    private String coordinateFields; // JSON 형태로 저장된 좌표 필드 정보 (레거시 지원용)
+    
+    @OneToMany(mappedBy = "template", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<TemplateField> templateFields = new ArrayList<>();
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
