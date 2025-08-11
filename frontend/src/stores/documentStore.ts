@@ -66,6 +66,7 @@ interface DocumentStore {
   createDocument: (request: DocumentCreateRequest) => Promise<Document>;
   getDocument: (id: number) => Promise<Document>;
   updateDocument: (id: number, request: DocumentUpdateRequest) => Promise<Document>;
+  updateDocumentSilently: (id: number, request: DocumentUpdateRequest) => Promise<boolean>; // 자동 저장용 - 성공 여부 반환
   submitForReview: (id: number) => Promise<Document>;
   assignEditor: (id: number, editorEmail: string) => Promise<Document>;
   assignReviewer: (id: number, reviewerEmail: string) => Promise<Document>;
@@ -120,12 +121,25 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   getDocument: async (id: number): Promise<Document> => {
     set({ loading: true, error: null });
     try {
+      console.log('📄 DocumentStore: 문서 로드 시작:', id);
+      
+      // 이전 문서 상태 완전히 초기화
+      set({ currentDocument: null });
+      
       const response = await axios.get(`${API_BASE_URL}/documents/${id}`);
       const document = response.data;
+      
+      console.log('📄 DocumentStore: 문서 로드 완료:', {
+        documentId: document.id,
+        templateId: document.templateId,
+        hasData: !!document.data
+      });
+      
       set({ currentDocument: document, loading: false });
       return document;
     } catch (error) {
-      set({ error: '문서를 불러오는데 실패했습니다.', loading: false });
+      console.error('📄 DocumentStore: 문서 로드 실패:', { id, error });
+      set({ error: '문서를 불러오는데 실패했습니다.', loading: false, currentDocument: null });
       throw error;
     }
   },
@@ -150,6 +164,17 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
       console.error('DocumentStore: Update response:', error.response?.data);
       set({ error: '문서 수정에 실패했습니다.', loading: false });
       throw error;
+    }
+  },
+
+  updateDocumentSilently: async (id: number, request: DocumentUpdateRequest) => {
+    // 자동 저장용 - loading과 currentDocument 상태를 변경하지 않음
+    try {
+      await axios.put(`${API_BASE_URL}/documents/${id}`, request);
+      return true; // 성공
+    } catch (error: any) {
+      console.error('DocumentStore: Silent update error:', error);
+      return false; // 실패
     }
   },
 
@@ -253,7 +278,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   },
 
   clearCurrentDocument: () => {
-    set({ currentDocument: null });
+    console.log('🧹 DocumentStore: currentDocument 상태 초기화');
+    set({ currentDocument: null, error: null });
   },
 
   clearError: () => {

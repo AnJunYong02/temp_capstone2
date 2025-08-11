@@ -94,9 +94,7 @@ function App() {
           path="/documents/:id" 
           element={
             <ProtectedRoute>
-              <Layout>
-                <DocumentEditor />
-              </Layout>
+              <DocumentEditor />
             </ProtectedRoute>
           } 
         />
@@ -104,9 +102,7 @@ function App() {
           path="/documents/:id/edit" 
           element={
             <ProtectedRoute>
-              <Layout>
-                <DocumentEditor />
-              </Layout>
+              <DocumentEditor />
             </ProtectedRoute>
           } 
         />

@@ -53,11 +53,6 @@ public class Document {
     @Builder.Default
     private List<DocumentRole> documentRoles = new ArrayList<>();
     
-    @OneToMany(mappedBy = "document", cascade = CascadeType.ALL, orphanRemoval = true)
-    @JsonIgnore
-    @Builder.Default
-    private List<DocumentFieldValue> documentFieldValues = new ArrayList<>();
-    
     public enum DocumentStatus {
         DRAFT, EDITING, READY_FOR_REVIEW, REVIEWING, COMPLETED, REJECTED
     }

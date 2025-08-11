@@ -376,7 +376,23 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
       // 필드 오버레이 그리기
       console.log('🎨 PdfViewer - 필드 그리기 시작, 필드 수:', coordinateFields.length);
       
+      // Canvas와 Display 크기 비교를 위한 스케일 팩터 계산
+      const canvasDisplayRect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / canvasDisplayRect.width;
+      const scaleY = canvas.height / canvasDisplayRect.height;
+      
+      console.log('🎨 PdfViewer - 스케일 정보:', {
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+        displayWidth: canvasDisplayRect.width,
+        displayHeight: canvasDisplayRect.height,
+        scaleX,
+        scaleY
+      });
+      
       coordinateFields.forEach((field, index) => {
+        // 템플릿에서 저장된 좌표는 실제 PDF 크기 기준
+        // Canvas는 실제 PDF 크기로 설정되어 있으므로 좌표를 그대로 사용
         const x = field.x;
         const y = field.y;
         const width = field.width;
@@ -386,7 +402,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           id: field.id,
           label: field.label,
           type: field.type,
-          x, y, width, height,
+          coordinates: { x, y, width, height },
           value: field.value || ''
         });
         
@@ -394,35 +410,39 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         const fieldValue = field.value || '';
         const hasValue = fieldValue && fieldValue.trim() !== '';
 
-        // showFieldUI가 true일 때만 필드 UI 요소들 표시 (배경, 테두리, 라벨 등)
-        if (showFieldUI) {
-          if (field.type === 'signature') {
-            // 서명 필드 UI
-            ctx.fillStyle = 'rgba(168, 85, 247, 0.1)';
-            ctx.fillRect(x, y, width, height);
-            
-            ctx.strokeStyle = isSelected ? '#EF4444' : '#A855F7';
-            ctx.lineWidth = isSelected ? 3 : 2;
-            ctx.setLineDash(isSelected ? [3, 3] : [5, 5]);
-            ctx.strokeRect(x, y, width, height);
-            
+        // 필드 UI 요소들 항상 표시 (배경, 테두리 등) - TemplateUploadPdf처럼
+        if (field.type === 'signature') {
+          // 서명 필드 UI
+          ctx.fillStyle = 'rgba(168, 85, 247, 0.1)';
+          ctx.fillRect(x, y, width, height);
+          
+          ctx.strokeStyle = isSelected ? '#EF4444' : '#A855F7';
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.setLineDash(isSelected ? [3, 3] : [5, 5]);
+          ctx.strokeRect(x, y, width, height);
+          
+          // 라벨은 showFieldUI일 때만 표시
+          if (showFieldUI) {
             ctx.fillStyle = '#7C3AED';
             ctx.font = '12px Arial';
             ctx.fillText(field.label, x, y - 5);
-            
-            ctx.setLineDash([]);
-          } else {
-            // 일반 필드 UI
-            const bgColor = hasValue ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)';
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(x, y, width, height);
+          }
+          
+          ctx.setLineDash([]);
+        } else {
+          // 일반 필드 UI - 항상 배경색과 테두리 표시
+          const bgColor = hasValue ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)';
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(x, y, width, height);
 
-            const borderColor = hasValue ? '#10B981' : '#3B82F6';
-            ctx.strokeStyle = isSelected ? '#EF4444' : borderColor;
-            ctx.lineWidth = isSelected ? 3 : 2;
-            ctx.setLineDash(isSelected ? [3, 3] : [5, 5]);
-            ctx.strokeRect(x, y, width, height);
+          const borderColor = hasValue ? '#10B981' : '#3B82F6';
+          ctx.strokeStyle = isSelected ? '#EF4444' : borderColor;
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.setLineDash(isSelected ? [3, 3] : []);
+          ctx.strokeRect(x, y, width, height);
 
+          // 라벨과 번호는 showFieldUI일 때만 표시
+          if (showFieldUI) {
             ctx.fillStyle = '#1F2937';
             ctx.font = '12px Arial';
             ctx.fillText(field.label, x, y - 5);
@@ -430,18 +450,9 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
             ctx.fillStyle = isSelected ? '#EF4444' : borderColor;
             ctx.font = 'bold 10px Arial';
             ctx.fillText(`${index + 1}`, x + 2, y + 12);
-            
-            ctx.setLineDash([]);
           }
-        } else {
-          // showFieldUI가 false일 때는 서명 필드가 있음을 나타내는 미묘한 표시
-          if (field.type === 'signature' && field.signatureData) {
-            ctx.strokeStyle = 'rgba(168, 85, 247, 0.3)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([2, 2]);
-            ctx.strokeRect(x, y, width, height);
-            ctx.setLineDash([]);
-          }
+          
+          ctx.setLineDash([]);
         }
 
         // 필드 값 표시 (편집모드/읽기모드 관계없이 항상 표시)

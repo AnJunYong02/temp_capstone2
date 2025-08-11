@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { 
+  logCoordinateConversion
+} from '../utils/coordinateUtils';
+import { debugTemplateField, runCoordinateTests } from '../utils/coordinateDebugger';
 
 // 필드 타입 정의
 interface TemplateField {
@@ -279,6 +283,11 @@ const TemplateUploadPdf: React.FC = () => {
     // 편집 단계로 이동
     setStep('edit');
     
+    // 좌표 변환 시스템 테스트 실행
+    setTimeout(() => {
+      runCoordinateTests();
+    }, 500);
+    
     // PDF 파일을 Object URL로 변환하여 미리보기
     const objectUrl = URL.createObjectURL(file);
     setPdfImageUrl(objectUrl);
@@ -304,6 +313,9 @@ const TemplateUploadPdf: React.FC = () => {
   };
 
   const handleNewFieldSave = (field: TemplateField) => {
+    // 디버깅: 필드 생성 정보 출력
+    debugTemplateField(field, 'creation');
+    
     // 새 필드 추가
     setFields(prev => [...prev, field]);
   };
@@ -500,18 +512,27 @@ const TemplateUploadPdf: React.FC = () => {
         formData.append('description', description.trim());
       }
 
-      // coordinateFields를 JSON 문자열로 변환하여 전송
+      // coordinateFields를 JSON 문자열로 변환하여 전송 (픽셀값 그대로)
       if (fields.length > 0) {
-        const coordinateFields = fields.map(field => ({
-          id: field.id,
-          label: field.label,
-          x: field.x,
-          y: field.y,
-          width: field.width,
-          height: field.height,
-          page: field.page,
-          required: field.required
-        }));
+        const coordinateFields = fields.map(field => {
+          logCoordinateConversion(
+            '픽셀값 직접 전송',
+            { x: field.x, y: field.y, width: field.width, height: field.height },
+            { x: field.x, y: field.y, width: field.width, height: field.height },
+            field.label
+          );
+
+          return {
+            id: field.id,
+            label: field.label,
+            x: Math.round(field.x), // 정수로 전송
+            y: Math.round(field.y), 
+            width: Math.round(field.width),
+            height: Math.round(field.height),
+            page: field.page,
+            required: field.required
+          };
+        });
 
         formData.append('coordinateFields', JSON.stringify(coordinateFields));
       }
@@ -688,23 +709,29 @@ const TemplateUploadPdf: React.FC = () => {
         <div className="flex-1 p-4 bg-gray-50">
           <div className="bg-white rounded-lg shadow-sm border p-2 h-full">
             <div 
-              className="relative bg-gray-100 rounded border h-full overflow-auto"
+              className="relative bg-gray-100 h-full overflow-auto"
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
             >
-              {/* PDF 미리보기 */}
+              {/* PDF 미리보기 - 150 DPI 기준 고정 크기 (DocumentEditor.tsx와 동일) */}
               <div 
-                className="relative bg-white shadow-sm border h-full overflow-auto cursor-crosshair"
+                className="relative bg-white shadow-sm border mx-auto cursor-crosshair"
                 onClick={handlePdfClick}
+                style={{
+                  width: '1240px', // A4 150 DPI 너비 (8.27 * 150)
+                  height: '1754px', // A4 150 DPI 높이 (11.69 * 150)
+                  maxWidth: '100%'
+                }}
               >
                 {pdfImageUrl ? (
                   <iframe 
-                    src={`${pdfImageUrl}#view=FitH&toolbar=0&navpanes=0&scrollbar=1`}
-                    className="w-full border-none block pointer-events-none"
+                    src={`${pdfImageUrl}#view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
+                    className="absolute inset-0 w-full h-full border-none pointer-events-none"
                     title="PDF Preview"
-                    style={{
-                      height: '100vh',
-                      minHeight: '800px'
+                    onLoad={() => {
+                      console.log('📐 템플릿 PDF iframe 로드 완료:', {
+                        containerSize: { width: 1240, height: 1754 }
+                      });
                     }}
                   />
                 ) : (

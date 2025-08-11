@@ -5,13 +5,17 @@ import com.hiswork.backend.domain.User;
 import com.hiswork.backend.dto.TemplateCreateRequest;
 import com.hiswork.backend.repository.TemplateRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
+@Slf4j
 public class TemplateService {
     
     private final TemplateRepository templateRepository;

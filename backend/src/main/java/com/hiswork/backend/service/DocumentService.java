@@ -2,6 +2,7 @@ package com.hiswork.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hiswork.backend.domain.Document;
 import com.hiswork.backend.domain.DocumentRole;
@@ -22,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,6 +113,26 @@ public class DocumentService {
         data.put("title", "");
         data.put("content", "");
         data.put("createdAt", LocalDateTime.now().toString());
+        
+        // 템플릿에서 coordinateFields 복사 (레거시 지원용)
+        if (template.getCoordinateFields() != null && !template.getCoordinateFields().trim().isEmpty()) {
+            try {
+                JsonNode coordinateFieldsJson = objectMapper.readTree(template.getCoordinateFields());
+                if (coordinateFieldsJson.isArray()) {
+                    // coordinateFields를 값만 빈 상태로 복사
+                    ArrayNode fieldsArray = objectMapper.createArrayNode();
+                    for (JsonNode field : coordinateFieldsJson) {
+                        ObjectNode fieldCopy = field.deepCopy();
+                        fieldCopy.put("value", ""); // 값은 빈 문자열로 초기화
+                        fieldsArray.add(fieldCopy);
+                    }
+                    data.set("coordinateFields", fieldsArray);
+                    log.info("문서 생성 시 템플릿의 coordinateFields 복사: {} 개 필드", fieldsArray.size());
+                }
+            } catch (Exception e) {
+                log.warn("템플릿 coordinateFields 파싱 실패: {}", e.getMessage());
+            }
+        }
         
         return data;
     }
