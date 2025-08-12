@@ -250,6 +250,7 @@ const TemplateUploadPdf: React.FC = () => {
   
   // PDF 미리보기 및 필드 관리
   const [pdfImageUrl, setPdfImageUrl] = useState<string | null>(null);
+  const [pdfImageDataUrl, setPdfImageDataUrl] = useState<string | null>(null); // 변환된 이미지 데이터
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [selectedField, setSelectedField] = useState<TemplateField | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -288,9 +289,30 @@ const TemplateUploadPdf: React.FC = () => {
       runCoordinateTests();
     }, 500);
     
-    // PDF 파일을 Object URL로 변환하여 미리보기
-    const objectUrl = URL.createObjectURL(file);
-    setPdfImageUrl(objectUrl);
+    try {
+      // PDF를 FormData로 백엔드에 전송하여 이미지로 변환
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post('/api/pdf/convert-to-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        responseType: 'blob'
+      });
+      
+      // 변환된 이미지를 URL로 생성
+      const imageBlob = new Blob([response.data], { type: 'image/png' });
+      const imageUrl = URL.createObjectURL(imageBlob);
+      setPdfImageDataUrl(imageUrl);
+      
+      console.log('📐 PDF 이미지 변환 완료:', { imageUrl });
+    } catch (error) {
+      console.error('PDF 이미지 변환 실패:', error);
+      // 실패 시 기존 방식 사용
+      const objectUrl = URL.createObjectURL(file);
+      setPdfImageUrl(objectUrl);
+    }
   };
 
   const handlePdfClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -707,80 +729,83 @@ const TemplateUploadPdf: React.FC = () => {
       <div className="flex flex-1 min-h-0">
         {/* PDF 미리보기 영역 */}
         <div className="flex-1 p-4 bg-gray-50">
-          <div className="bg-white rounded-lg shadow-sm border p-2 h-full">
+          <div className="relative bg-gray-100 h-full overflow-auto flex justify-center items-start p-4">
+            {/* PDF 컨테이너 - DocumentEditor와 동일한 구조 */}
             <div 
-              className="relative bg-gray-100 h-full overflow-auto"
+              className="relative bg-white shadow-sm border"
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
+              onClick={handlePdfClick}
+              style={{
+                width: '1240px',
+                height: '1754px',
+                minWidth: '1240px', // 최소 크기를 원본 크기로 고정
+                minHeight: '1754px', // 최소 높이도 원본 크기로 고정
+                flexShrink: 0, // 컨테이너가 줄어들지 않도록 설정
+                cursor: 'crosshair'
+              }}
             >
-              {/* PDF 미리보기 - 150 DPI 기준 고정 크기 (DocumentEditor.tsx와 동일) */}
-              <div 
-                className="relative bg-white shadow-sm border mx-auto cursor-crosshair"
-                onClick={handlePdfClick}
-                style={{
-                  width: '1240px', // A4 150 DPI 너비 (8.27 * 150)
-                  height: '1754px', // A4 150 DPI 높이 (11.69 * 150)
-                  maxWidth: '100%'
-                }}
-              >
-                {pdfImageUrl ? (
-                  <iframe 
-                    src={`${pdfImageUrl}#view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
-                    className="absolute inset-0 w-full h-full border-none pointer-events-none"
-                    title="PDF Preview"
-                    onLoad={() => {
-                      console.log('📐 템플릿 PDF iframe 로드 완료:', {
-                        containerSize: { width: 1240, height: 1754 }
-                      });
+              {/* PDF 배경 이미지 - DocumentEditor와 동일한 방식 */}
+              {(pdfImageDataUrl || pdfImageUrl) ? (
+                <img 
+                  src={pdfImageDataUrl || pdfImageUrl || ''}
+                  alt="PDF Preview"
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    width: '1240px',
+                    height: '1754px',
+                    objectFit: 'fill'
+                  }}
+                  onError={() => {
+                    console.error('PDF 이미지 로드 실패');
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">📄</div>
+                    <div>PDF 미리보기</div>
+                    <div className="text-sm mt-2">클릭하여 필드 추가</div>
+                  </div>
+                </div>
+              )}
+                
+              {/* 필드 오버레이 */}
+              {fields.map((field) => (
+                <div
+                  key={field.id}
+                  className={`absolute border-2 group select-none ${
+                    draggingField === field.id 
+                      ? 'border-red-500 bg-red-100' 
+                      : resizingField === field.id
+                      ? 'border-green-500 bg-green-100'
+                      : 'border-blue-500 bg-blue-100'
+                  } bg-opacity-30 hover:bg-opacity-50 transition-colors`}
+                  style={{
+                    left: field.x,
+                    top: field.y,
+                    width: field.width,
+                    height: field.height,
+                    cursor: draggingField === field.id ? 'grabbing' : 'grab'
+                  }}
+                  onMouseDown={(e) => handleFieldMouseDown(field, e)}
+                  onClick={(e) => handleFieldClick(field, e)}
+                >
+                  <div className="text-xs text-blue-700 font-medium p-1 truncate pointer-events-none">
+                    {field.label}
+                    {field.required && <span className="text-red-500">*</span>}
+                  </div>
+                  
+                  {/* 리사이즈 핸들 */}
+                  <div
+                    className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                    onMouseDown={(e) => handleResizeMouseDown(field, e)}
+                    style={{
+                      background: 'linear-gradient(-45deg, transparent 30%, #3b82f6 30%, #3b82f6 70%, transparent 70%)'
                     }}
                   />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <div className="text-center">
-                      <div className="text-6xl mb-4">📄</div>
-                      <div>PDF 미리보기</div>
-                      <div className="text-sm mt-2">클릭하여 필드 추가</div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* 필드 오버레이 */}
-                {fields.map((field) => (
-                  <div
-                    key={field.id}
-                    className={`absolute border-2 group select-none ${
-                      draggingField === field.id 
-                        ? 'border-red-500 bg-red-100' 
-                        : resizingField === field.id
-                        ? 'border-green-500 bg-green-100'
-                        : 'border-blue-500 bg-blue-100'
-                    } bg-opacity-30 hover:bg-opacity-50 transition-colors`}
-                    style={{
-                      left: field.x,
-                      top: field.y,
-                      width: field.width,
-                      height: field.height,
-                      cursor: draggingField === field.id ? 'grabbing' : 'grab'
-                    }}
-                    onMouseDown={(e) => handleFieldMouseDown(field, e)}
-                    onClick={(e) => handleFieldClick(field, e)}
-                  >
-                    <div className="text-xs text-blue-700 font-medium p-1 truncate pointer-events-none">
-                      {field.label}
-                      {field.required && <span className="text-red-500">*</span>}
-                    </div>
-                    
-                    {/* 리사이즈 핸들 */}
-                    <div
-                      className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 cursor-se-resize opacity-0 group-hover:opacity-100 transition-opacity"
-                      onMouseDown={(e) => handleResizeMouseDown(field, e)}
-                      style={{
-                        background: 'linear-gradient(-45deg, transparent 30%, #3b82f6 30%, #3b82f6 70%, transparent 70%)'
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

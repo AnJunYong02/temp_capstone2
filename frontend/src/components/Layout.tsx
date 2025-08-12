@@ -26,9 +26,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* Header - 고정 위치 */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-sm border-b">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link to="/tasks" className="text-xl font-bold text-primary-600">
@@ -120,8 +120,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         />
       )}
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Main content - 헤더 높이만큼 상단 여백 추가 */}
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-8 pt-24">
         {children}
       </main>
     </div>

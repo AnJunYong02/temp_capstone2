@@ -109,11 +109,6 @@ public class DocumentService {
     private ObjectNode initializeDocumentData(Template template) {
         ObjectNode data = objectMapper.createObjectNode();
         
-        // 기본 필드 초기화
-        data.put("title", "");
-        data.put("content", "");
-        data.put("createdAt", LocalDateTime.now().toString());
-        
         // 템플릿에서 coordinateFields 복사 (레거시 지원용)
         if (template.getCoordinateFields() != null && !template.getCoordinateFields().trim().isEmpty()) {
             try {

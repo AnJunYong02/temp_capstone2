@@ -238,8 +238,8 @@ const DocumentEditor: React.FC = () => {
       
       // 좌표 필드 저장 (템플릿 필드가 없는 경우)
       if (Array.isArray(templateFields) === false || templateFields.length === 0) {
+        // 필요한 데이터만 포함하여 저장 (빈 값 제외)
         const updatedData = {
-          ...currentDocument.data,
           coordinateFields: coordinateFields.map(field => ({
             id: field.id,
             label: field.label,
@@ -358,8 +358,8 @@ const DocumentEditor: React.FC = () => {
         : field
     );
     
+    // 필요한 데이터만 포함하여 저장 (빈 값 제외)
     const updatedData = {
-      ...currentDocument.data,
       coordinateFields: updatedFields
     };
     
@@ -619,7 +619,12 @@ const DocumentEditor: React.FC = () => {
           <img 
             src={pdfImageUrl}
             alt="PDF Preview"
-            className="absolute inset-0 w-full h-full object-contain"
+            className="absolute inset-0"
+            style={{
+              width: '1240px',
+              height: '1754px',
+              objectFit: 'fill'
+            }}
             onError={() => {
               console.error('PDF 이미지 로드 실패:', pdfImageUrl);
             }}
@@ -641,20 +646,26 @@ const DocumentEditor: React.FC = () => {
               });
               
               // 퍼센트 기반 위치 계산
-              const leftPercent = (field.x / 1240) * 100;
-              const topPercent = (field.y / 1754) * 100;
-              const widthPercent = (field.width / 1240) * 100;
-              const heightPercent = (field.height / 1754) * 100;
-              
+              // const leftPercent = (field.x / 1240) * 100;
+              // const topPercent = (field.y / 1754) * 100.5;
+              // const widthPercent = (field.width / 1240) * 100.5;
+              // const heightPercent = (field.height / 1754) * 100.5;
+
+              // 픽셀값 직접 사용
+              const leftPercent = field.x;
+              const topPercent = field.y;
+              const widthPercent = field.width;
+              const heightPercent = field.height;
+
               return (
                 <div
                   key={field.id}
                   className="absolute border-2 bg-blue-100 bg-opacity-30 hover:bg-opacity-50 transition-colors border-blue-500 flex flex-col justify-center cursor-pointer"
                   style={{
-                    left: `${leftPercent}%`,
-                    top: `${topPercent}%`,
-                    width: `${widthPercent}%`,
-                    height: `${heightPercent}%`,
+                    left: `${leftPercent}px`,
+                    top: `${topPercent}px`,
+                    width: `${widthPercent}px`,
+                    height: `${heightPercent}px`,
                   }}
                   onClick={(e: React.MouseEvent) => {
                     e.preventDefault();
@@ -700,9 +711,9 @@ const DocumentEditor: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-gray-50">
-      {/* 헤더 */}
-      <div className="bg-white border-b px-6 py-4 flex justify-between items-center w-full">
+    <div className="min-h-screen w-full bg-gray-50">
+      {/* 헤더 - 고정 위치 */}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-white border-b px-6 py-4 flex justify-between items-center w-full">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">{currentDocument.data?.title || '문서 편집'}</h1>
           <div className="flex items-center gap-2 mt-1">
@@ -773,8 +784,8 @@ const DocumentEditor: React.FC = () => {
         </div>
       </div>
 
-      {/* 메인 컨텐츠 - 전체 화면 너비 사용 */}
-      <div className="flex-1 flex min-h-0 w-full">
+      {/* 메인 컨텐츠 - 헤더 아래 고정 레이아웃 */}
+      <div className="fixed top-24 left-0 right-0 bottom-0 flex w-full">
         {/* 왼쪽 패널 - PDF 뷰어 */}
         <div className="flex-1 bg-gray-100 overflow-auto flex justify-center items-start p-4">
           {renderPdfViewer || (
@@ -784,8 +795,8 @@ const DocumentEditor: React.FC = () => {
           )}
         </div>
 
-        {/* 오른쪽 패널 - 필드 목록 (고정 너비) */}
-        <div className="w-80 bg-white border-l overflow-y-auto flex-shrink-0">
+        {/* 오른쪽 패널 - 필드 목록 (고정 너비, 고정 위치) */}
+        <div className="w-80 bg-white border-l overflow-y-auto flex-shrink-0 h-full">
           <div className="p-4 border-b bg-gray-50">
             <h2 className="font-medium text-gray-900">문서 필드</h2>
             <p className="text-sm text-gray-500 mt-1">

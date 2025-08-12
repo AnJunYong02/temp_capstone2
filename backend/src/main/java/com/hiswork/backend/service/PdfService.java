@@ -355,6 +355,24 @@ public class PdfService {
     }
     
     /**
+     * PDF를 이미지로 변환 (150 DPI)
+     */
+    public byte[] convertPdfToImage(java.io.InputStream pdfInputStream, int dpi) throws IOException {
+        try (PDDocument document = PDDocument.load(pdfInputStream)) {
+            PDFRenderer pdfRenderer = new PDFRenderer(document);
+            
+            // 첫 번째 페이지만 렌더링 (150 DPI)
+            BufferedImage image = pdfRenderer.renderImageWithDPI(0, dpi);
+            
+            // BufferedImage를 PNG 바이트 배열로 변환
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            ImageIO.write(image, "PNG", baos);
+            
+            return baos.toByteArray();
+        }
+    }
+    
+    /**
      * PDF 업로드 결과 DTO
      */
     @lombok.Data
