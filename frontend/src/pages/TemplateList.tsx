@@ -35,8 +35,35 @@ const TemplateList: React.FC = () => {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">{error}</p>
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-bold text-gray-800">템플릿 관리</h1>
+              <div className="flex space-x-3">
+                <Link to="/templates/pdf/upload" className="btn btn-primary">
+                  📄 PDF 템플릿 업로드
+                </Link>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+              <p className="text-red-800">{error}</p>
+            </div>
+            <div className="text-center py-8">
+              <div className="text-gray-500 text-lg mb-4">
+                템플릿 목록을 불러올 수 없습니다.
+              </div>
+              <Link
+                to="/templates/pdf/upload"
+                className="btn btn-primary"
+              >
+                새 템플릿 만들기
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

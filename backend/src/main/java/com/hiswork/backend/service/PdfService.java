@@ -130,11 +130,15 @@ public class PdfService {
             log.info("추출된 coordinateData: {}", coordinateData);
             log.info("추출된 signatures: {}", signatures);
             
-            // 좌표 필드들을 순회하며 값 삽입
+            // 좌표 필드들을 순회하며 값 삽입 (표 제외)
             if (coordinateFields != null && coordinateFields.isArray()) {
                 log.info("좌표 필드 처리 시작 - 총 {}개 필드", coordinateFields.size());
                 
                 for (JsonNode field : coordinateFields) {
+                    // 표 타입은 별도 처리 (아래)
+                    if (field.has("type") && "table".equals(field.get("type").asText())) {
+                        continue;
+                    }
                     String fieldId = field.get("id").asText();
                     String fieldType = field.has("type") ? field.get("type").asText() : "text";
                     
@@ -224,6 +228,87 @@ public class PdfService {
                 }
             } else {
                 log.warn("좌표 필드가 없거나 배열이 아님: {}", coordinateFields);
+            }
+
+            // 표 데이터 렌더링
+            if (documentData != null && documentData.has("table init Fields")) {
+                ArrayNode tables = (ArrayNode) documentData.get("table init Fields");
+                ArrayNode tableData = documentData.has("table data") && documentData.get("table data").isArray()
+                        ? (ArrayNode) documentData.get("table data")
+                        : null;
+                for (JsonNode table : tables) {
+                    float x = table.has("x") ? (float) table.get("x").asDouble() : 0f;
+                    float y = table.has("y") ? (float) table.get("y").asDouble() : 0f;
+                    float width = table.has("width") ? (float) table.get("width").asDouble() : 300f;
+                    float height = table.has("height") ? (float) table.get("height").asDouble() : 120f;
+                    float pageHeight = pdfDoc.getFirstPage().getPageSize().getHeight();
+                    float adjustedY = pageHeight - y - height;
+
+                    // 헤더 높이 및 행 수 추정
+                    float headerHeight = Math.min(30f, Math.max(20f, height * 0.12f));
+                    int rows = 0;
+                    if (tableData != null) {
+                        // 해당 tableId의 최대 row index + 1로 계산
+                        String tblId = table.has("tableId") ? table.get("tableId").asText() : null;
+                        for (JsonNode cell : tableData) {
+                            if (tblId != null && cell.has("tableId") && tblId.equals(cell.get("tableId").asText())) {
+                                rows = Math.max(rows, cell.has("location_row") ? cell.get("location_row").asInt() + 1 : rows);
+                            }
+                        }
+                    }
+                    if (rows == 0) rows = 3;
+
+                    // 컬럼 폭 계산
+                    java.util.List<Integer> colWidths = new java.util.ArrayList<>();
+                    int cols = 0;
+                    if (table.has("columns") && table.get("columns").isArray()) {
+                        for (JsonNode col : table.get("columns")) {
+                            int w = 0;
+                            if (col.has("width")) {
+                                try { w = Integer.parseInt(col.get("width").asText()); } catch (Exception ignored) {}
+                            }
+                            if (w <= 0) { w = (int) Math.floor(width / Math.max(1, table.get("columns").size())); }
+                            colWidths.add(w);
+                            cols++;
+                        }
+                    }
+                    if (cols == 0) { cols = 2; for (int i=0;i<cols;i++) colWidths.add((int) (width/cols)); }
+
+                    // 헤더 라인
+                    canvas.setStrokeColor(ColorConstants.LIGHT_GRAY);
+                    canvas.rectangle(x, adjustedY + height - headerHeight, width, headerHeight).stroke();
+                    // 외곽선
+                    canvas.rectangle(x, adjustedY, width, height).stroke();
+                    // 세로 구분선 및 헤더 텍스트는 생략(간단화)
+
+                    // 셀 텍스트 채우기
+                    if (tableData != null) {
+                        for (JsonNode cell : tableData) {
+                            String tblId = table.has("tableId") ? table.get("tableId").asText() : null;
+                            if (tblId != null && cell.has("tableId") && !tblId.equals(cell.get("tableId").asText())) continue;
+                            String value = cell.has("value") ? cell.get("value").asText() : "";
+                            int r = cell.has("location_row") ? cell.get("location_row").asInt() : 0;
+                            int c = cell.has("location_column") ? Integer.parseInt(cell.get("location_column").asText()) : 0;
+                            if (r < 0 || c < 0 || c >= cols) continue;
+
+                            // 좌표 계산
+                            float colStartX = x;
+                            for (int i = 0; i < c; i++) colStartX += colWidths.get(i);
+                            float colWidth = colWidths.get(c);
+                            float rowHeight = (height - headerHeight) / Math.max(1, rows);
+                            float cellY = adjustedY + height - headerHeight - (r + 1) * rowHeight;
+
+                            // 텍스트 렌더
+                            if (!value.isEmpty()) {
+                                canvas.beginText()
+                                      .setFontAndSize(PdfFontFactory.createFont(StandardFonts.HELVETICA), 10)
+                                      .moveText(colStartX + 2, cellY + rowHeight / 2 - 4)
+                                      .showText(value)
+                                      .endText();
+                            }
+                        }
+                    }
+                }
             }
             
             pdfDoc.close();

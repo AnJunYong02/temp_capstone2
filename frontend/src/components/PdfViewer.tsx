@@ -7,7 +7,7 @@ export interface CoordinateField {
   width: number;
   height: number;
   label: string;
-  type: 'text' | 'textarea' | 'date' | 'number' | 'signature';
+  type: 'text' | 'textarea' | 'date' | 'number' | 'signature' | 'table';
   value?: string;
   placeholder?: string;
   required?: boolean;
@@ -22,6 +22,17 @@ export interface CoordinateField {
   backgroundColor?: string;
   borderColor?: string;
   borderWidth?: number;
+  // 표 필드 속성들
+  tableId?: string;
+  rows?: number;
+  columnsCount?: number;
+  columns?: Array<{
+    title: string;
+    width: number; // px
+    height?: number; // px
+    width_ratio?: string;
+    location_column: string;
+  }>;
 }
 
 interface PdfViewerProps {
@@ -65,6 +76,13 @@ interface PdfViewerProps {
     width: number;
     height: number;
   } | null) => void; // 서명 필드 선택 콜백
+  // 표 데이터 관련 props
+  tableData?: Array<{
+    tableId: string;
+    value: string;
+    location_column: string;
+    location_row: string;
+  }>; // 표 셀 데이터
 }
 
 const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -83,6 +101,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   editingSignatureFieldId = null,
   onSignatureFieldUpdate,
   onSignatureFieldSelect,
+  tableData = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,9 +118,16 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     startX: number; 
     startY: number; 
   } | null>(null);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [currentDrag, setCurrentDrag] = useState<{ x: number; y: number } | null>(null);
+  // 삭제된 사용되지 않는 상태 (경고 제거)
+  // const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  // const [currentDrag, setCurrentDrag] = useState<{ x: number; y: number } | null>(null);
   const [cursorStyle, setCursorStyle] = useState<string>('default');
+  // 표 컬럼 리사이즈 상태
+  // 표 컬럼 리사이즈 상태 (미사용 - 추후 확장)
+  // const [isResizingTableColumn, setIsResizingTableColumn] = useState(false);
+  // const [resizingTableFieldId, setResizingTableFieldId] = useState<string | null>(null);
+  // const [resizingColumnIndex, setResizingColumnIndex] = useState<number | null>(null);
+  // const [tableResizeStartX, setTableResizeStartX] = useState<number | null>(null);
 
   // 서명 필드 편집 관련 상태
   const [isDraggingSignatureField, setIsDraggingSignatureField] = useState(false);
@@ -429,6 +455,132 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           }
           
           ctx.setLineDash([]);
+        } else if (field.type === 'table') {
+          // 표 필드 UI
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+          ctx.fillRect(x, y, width, height);
+          ctx.strokeStyle = isSelected ? '#EF4444' : '#3B82F6';
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.setLineDash(isSelected ? [3,3] : [4,2]);
+          ctx.strokeRect(x, y, width, height);
+          ctx.setLineDash([]);
+
+          // 헤더와 컬럼 구분선 그리기
+          const headerHeight = Math.min(30, Math.max(20, Math.floor(height * 0.12)));
+          // 헤더 배경
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.12)';
+          ctx.fillRect(x, y, width, headerHeight);
+          ctx.strokeStyle = '#3B82F6';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, y + headerHeight);
+          ctx.lineTo(x + width, y + headerHeight);
+          ctx.stroke();
+
+          // 컬럼 라인
+          const cols = Array.isArray(field.columns) && field.columns.length > 0 ? field.columns : [];
+          let cursorX = x;
+          cols.forEach((col, ci) => {
+            const colWidth = Math.max(20, col.width || Math.floor(width / Math.max(1, cols.length)));
+            // 세로 구분선
+            ctx.beginPath();
+            ctx.moveTo(cursorX + colWidth, y);
+            ctx.lineTo(cursorX + colWidth, y + height);
+            ctx.strokeStyle = '#93C5FD';
+            ctx.stroke();
+
+            // 헤더 텍스트
+            if (showFieldUI) {
+              ctx.fillStyle = '#1F2937';
+              ctx.font = '12px Arial';
+              ctx.textAlign = 'left';
+              ctx.fillText(col.title || `컬럼 ${ci+1}`, cursorX + 4, y + Math.min(headerHeight - 8, 18));
+            }
+            cursorX += colWidth;
+          });
+
+          // 행 가이드 라인 (간단하게 높이 균등)
+          const rows = field.rows || 3;
+          const rowHeight = (height - headerHeight) / Math.max(1, rows);
+          for (let r = 1; r <= rows; r++) {
+            const ry = y + headerHeight + r * rowHeight;
+            ctx.beginPath();
+            ctx.moveTo(x, ry);
+            ctx.lineTo(x + width, ry);
+            ctx.strokeStyle = 'rgba(203, 213, 225, 0.7)';
+            ctx.stroke();
+          }
+
+          // 표 데이터 표시 (테이블 셀에 실제 값 렌더링)
+          if (tableData && tableData.length > 0 && showFieldUI) {
+            const tableId = field.tableId || field.id;
+            ctx.fillStyle = '#1F2937';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'left';
+            
+            // 각 셀에 데이터 표시
+            for (let r = 1; r <= rows; r++) {
+              let cellX = x;
+              cols.forEach((col, ci) => {
+                const colIndex = ci + 1; // 1부터 시작
+                const colWidth = Math.max(20, col.width || Math.floor(width / Math.max(1, cols.length)));
+                
+                // 해당 셀의 데이터 찾기
+                const cellData = tableData.find(item => 
+                  item.tableId === tableId && 
+                  item.location_row === String(r) && 
+                  item.location_column === String(colIndex)
+                );
+                
+                if (cellData && cellData.value) {
+                  const cellHeight = col.height || rowHeight;
+                  const cellY = y + headerHeight + (r - 1) * cellHeight;
+                  
+                  // 폰트 크기 자동 조정
+                  const textLength = cellData.value.length;
+                  let fontSize = 11;
+                  if (textLength > 20) fontSize = 9;
+                  if (textLength > 40) fontSize = 8;
+                  if (cellHeight < 25) fontSize = Math.max(8, Math.floor(cellHeight * 0.6));
+                  
+                  ctx.font = `${fontSize}px Arial`;
+                  
+                  // 텍스트 줄바꿈 처리
+                  const maxTextWidth = colWidth - 8;
+                  const words = cellData.value.split(' ');
+                  const lines: string[] = [];
+                  let currentLine = '';
+                  
+                  for (const word of words) {
+                    const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                    const testWidth = ctx.measureText(testLine).width;
+                    
+                    if (testWidth > maxTextWidth && currentLine) {
+                      lines.push(currentLine);
+                      currentLine = word;
+                    } else {
+                      currentLine = testLine;
+                    }
+                  }
+                  if (currentLine) lines.push(currentLine);
+                  
+                  // 높이 제한에 맞게 줄 수 조정
+                  const lineHeight = fontSize + 2;
+                  const maxLines = Math.floor((cellHeight - 4) / lineHeight);
+                  const displayLines = lines.slice(0, Math.max(1, maxLines));
+                  
+                  // 텍스트 렌더링
+                  const startY = cellY + (cellHeight - displayLines.length * lineHeight) / 2 + fontSize;
+                  displayLines.forEach((line, lineIndex) => {
+                    const lineY = startY + lineIndex * lineHeight;
+                    ctx.fillText(line, cellX + 4, lineY);
+                  });
+                }
+                
+                cellX += colWidth;
+              });
+            }
+          }
         } else {
           // 일반 필드 UI - 항상 배경색과 테두리 표시
           const bgColor = hasValue ? 'rgba(16, 185, 129, 0.15)' : 'rgba(59, 130, 246, 0.15)';
@@ -456,7 +608,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         }
 
         // 필드 값 표시 (편집모드/읽기모드 관계없이 항상 표시)
-        if (hasValue) {
+        if (hasValue && field.type !== 'table') {
           const fontSize = field.fontSize || 12;
           const fontColor = field.fontColor || '#1F2937';
           const fontWeight = field.fontWeight || 'normal';
@@ -880,7 +1032,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   }, [isResizingSignatureField, resizingSignatureFieldId, signatureFieldResizeStartData, isDraggingSignatureField, draggedSignatureFieldId, signatureFieldDragOffset, isResizing, resizingFieldId, resizeStartData, isDraggingField, draggedFieldId, dragOffset, coordinateFields, onCoordinateFieldsChange, getImageCoordinates, onSignatureFieldUpdate]);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseUp = useCallback(() => {
     if (isResizingSignatureField) {
       // 서명 필드 리사이즈 완료
       setIsResizingSignatureField(false);
@@ -961,12 +1113,12 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
-        onMouseMove={(e) => {
+        onMouseMove={(event) => {
           // 드래그나 리사이즈 중이 아닐 때만 호버 처리
           if (!isDraggingField && !isResizing && !isDraggingSignatureField && !isResizingSignatureField) {
             handleMouseHover();
           } else {
-            handleMouseMove(e);
+            handleMouseMove(event);
           }
         }}
         onMouseUp={handleMouseUp}

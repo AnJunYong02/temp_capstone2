@@ -123,6 +123,27 @@ public class DocumentService {
                     }
                     data.set("coordinateFields", fieldsArray);
                     log.info("문서 생성 시 템플릿의 coordinateFields 복사: {} 개 필드", fieldsArray.size());
+
+                    // 표 초기 필드 분리하여 보조 구조 생성
+                    ArrayNode tableInitFields = objectMapper.createArrayNode();
+                    for (JsonNode field : fieldsArray) {
+                        if (field.has("type") && "table".equals(field.get("type").asText())) {
+                            ObjectNode tableNode = objectMapper.createObjectNode();
+                            tableNode.put("type", "table");
+                            tableNode.put("tableId", field.has("tableId") ? field.get("tableId").asText() : field.get("id").asText());
+                            tableNode.put("x", field.get("x").asInt());
+                            tableNode.put("y", field.get("y").asInt());
+                            tableNode.put("height", field.get("height").asInt());
+                            tableNode.put("width", field.get("width").asInt());
+                            if (field.has("columns") && field.get("columns").isArray()) {
+                                tableNode.set("columns", field.get("columns").deepCopy());
+                            }
+                            tableInitFields.add(tableNode);
+                        }
+                    }
+                    if (tableInitFields.size() > 0) {
+                        data.set("table init Fields", tableInitFields);
+                    }
                 }
             } catch (Exception e) {
                 log.warn("템플릿 coordinateFields 파싱 실패: {}", e.getMessage());

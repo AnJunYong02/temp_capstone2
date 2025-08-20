@@ -7,7 +7,7 @@ interface CoordinateField {
   width: number;
   height: number;
   label: string;
-  type: 'text' | 'textarea' | 'date' | 'number';
+  type: 'text' | 'textarea' | 'date' | 'number' | 'table';
   value?: string;
   required?: boolean;
 }

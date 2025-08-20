@@ -16,6 +16,18 @@ interface TemplateField {
   height: number;
   page: number;
   required: boolean;
+  type?: 'text' | 'table';
+  // 표 전용 속성
+  tableId?: string;
+  rows?: number;
+  columnsCount?: number;
+  columns?: Array<{
+    title: string;
+    width: number;
+    height?: number;
+    width_ratio?: string;
+    location_column: string;
+  }>;
 }
 
 // 새 필드 추가 모달 컴포넌트
@@ -257,6 +269,29 @@ const TemplateUploadPdf: React.FC = () => {
   const [isNewFieldModalOpen, setIsNewFieldModalOpen] = useState(false);
   const [newFieldPosition, setNewFieldPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [step, setStep] = useState<'upload' | 'edit'>('upload');
+  
+  // 표 추가 관련 상태
+  const [addMode, setAddMode] = useState<'text' | 'table'>('text');
+  const [isAddingTable, setIsAddingTable] = useState(false);
+  const [tableRowsInput, setTableRowsInput] = useState<number>(3);
+  const [tableColsInput, setTableColsInput] = useState<number>(3);
+  const [tableHeaderInput, setTableHeaderInput] = useState<string>('컬럼1,컬럼2,컬럼3');
+  const [tableWidthInput, setTableWidthInput] = useState<number>(400);
+  const [tableHeightInput, setTableHeightInput] = useState<number>(120);
+  
+  // 성공 메시지 상태
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // 표 컬럼 리사이즈 관련 상태
+  const [isResizingTableColumn, setIsResizingTableColumn] = useState(false);
+  const [resizingTableFieldId, setResizingTableFieldId] = useState<string | null>(null);
+  const [resizingColumnIndex, setResizingColumnIndex] = useState<number>(-1);
+  const [tableResizeStartX, setTableResizeStartX] = useState<number>(0);
+  
+  // 표 행 높이 리사이즈 관련 상태
+  const [isResizingTableRow, setIsResizingTableRow] = useState(false);
+  const [resizingRowIndex, setResizingRowIndex] = useState<number>(-1);
+  const [tableResizeStartY, setTableResizeStartY] = useState<number>(0);
 
   // 필드 드래그 앤 드롭 상태
   const [draggingField, setDraggingField] = useState<string | null>(null);
@@ -328,6 +363,49 @@ const TemplateUploadPdf: React.FC = () => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    
+    // 표 추가 모드인 경우
+    if (addMode === 'table' && isAddingTable) {
+      const columnsTitles = tableHeaderInput.split(',').map(s => s.trim()).filter(Boolean);
+      const cols = Math.max(1, tableColsInput);
+      const rows = Math.max(1, tableRowsInput);
+      const normalizedTitles = Array.from({ length: cols }, (_, i) => columnsTitles[i] || `컬럼${i + 1}`);
+      const totalWidth = Math.max(100, tableWidthInput);
+      const totalHeight = Math.max(60, tableHeightInput);
+      const headerHeight = 30; // 헤더 높이 고정
+      const bodyHeight = totalHeight - headerHeight;
+      const cellHeight = Math.floor(bodyHeight / Math.max(1, rows));
+      const columnWidth = Math.floor(totalWidth / cols);
+      
+      const columns = normalizedTitles.map((title, idx) => ({
+        title,
+        width: columnWidth,
+        height: cellHeight,
+        width_ratio: String(columnWidth),
+        location_column: String(idx + 1)
+      }));
+
+      const newTableField: TemplateField = {
+        id: `table_${Date.now()}`,
+        label: '표',
+        x: Math.round(x),
+        y: Math.round(y),
+        width: totalWidth,
+        height: totalHeight,
+        page: 1,
+        required: false,
+        type: 'table',
+        rows: rows,
+        columnsCount: cols,
+        columns,
+        tableId: `tbl_${Date.now()}`
+      };
+      
+      setFields(prev => [...prev, newTableField]);
+      setIsAddingTable(false);
+      setAddMode('text');
+      return;
+    }
     
     // 새 필드 생성을 위한 위치 저장 및 모달 열기
     setNewFieldPosition({ x: Math.round(x), y: Math.round(y) });
@@ -462,7 +540,7 @@ const TemplateUploadPdf: React.FC = () => {
   };
 
   // 마우스 업 처리
-  const handleMouseUp = (event?: React.MouseEvent) => {
+  const handleMouseUp = React.useCallback((event?: React.MouseEvent) => {
     // 드래그 또는 리사이즈 중이었다면 이벤트 차단
     if (draggingField || resizingField) {
       if (event) {
@@ -488,7 +566,110 @@ const TemplateUploadPdf: React.FC = () => {
       setIsDragging(false);
       setPreventClick(false);
     }
+  }, [draggingField, resizingField, isDragging, preventClick]);
+
+  // 표 컬럼 리사이즈 시작
+  const handleTableColumnResizeStart = (fieldId: string, columnIndex: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setIsResizingTableColumn(true);
+    setResizingTableFieldId(fieldId);
+    setResizingColumnIndex(columnIndex);
+    setTableResizeStartX(event.clientX);
   };
+
+  // 표 컬럼 리사이즈 처리
+  const handleTableColumnResize = React.useCallback((event: MouseEvent) => {
+    if (!isResizingTableColumn || !resizingTableFieldId || resizingColumnIndex === -1) return;
+
+    const deltaX = event.clientX - tableResizeStartX;
+    const field = fields.find(f => f.id === resizingTableFieldId);
+    if (!field || !field.columns) return;
+
+    const newColumns = [...field.columns];
+    const currentColumn = newColumns[resizingColumnIndex];
+    const nextColumn = newColumns[resizingColumnIndex + 1];
+    
+    if (currentColumn && nextColumn) {
+      const minWidth = 30;
+      const newCurrentWidth = Math.max(minWidth, currentColumn.width + deltaX);
+      const newNextWidth = Math.max(minWidth, nextColumn.width - deltaX);
+      
+      // 최소 너비 조건을 만족하는 경우에만 업데이트
+      if (newCurrentWidth >= minWidth && newNextWidth >= minWidth) {
+        newColumns[resizingColumnIndex] = {
+          ...currentColumn,
+          width: newCurrentWidth,
+          width_ratio: String(newCurrentWidth)
+        };
+        newColumns[resizingColumnIndex + 1] = {
+          ...nextColumn,
+          width: newNextWidth,
+          width_ratio: String(newNextWidth)
+        };
+
+        setFields(prev => prev.map(f => 
+          f.id === resizingTableFieldId 
+            ? { ...f, columns: newColumns }
+            : f
+        ));
+        
+        setTableResizeStartX(event.clientX);
+      }
+    }
+  }, [isResizingTableColumn, resizingTableFieldId, resizingColumnIndex, tableResizeStartX, fields]);
+
+  // 표 컬럼 리사이즈 종료
+  const handleTableColumnResizeEnd = React.useCallback(() => {
+    setIsResizingTableColumn(false);
+    setResizingTableFieldId(null);
+    setResizingColumnIndex(-1);
+    setTableResizeStartX(0);
+  }, []);
+
+  // 표 행 높이 리사이즈 시작
+  const handleTableRowResizeStart = (fieldId: string, rowIndex: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setIsResizingTableRow(true);
+    setResizingTableFieldId(fieldId);
+    setResizingRowIndex(rowIndex);
+    setTableResizeStartY(event.clientY);
+  };
+
+  // 표 행 높이 리사이즈 처리
+  const handleTableRowResize = React.useCallback((event: MouseEvent) => {
+    if (!isResizingTableRow || !resizingTableFieldId || resizingRowIndex === -1) return;
+
+    const deltaY = event.clientY - tableResizeStartY;
+    const field = fields.find(f => f.id === resizingTableFieldId);
+    if (!field || !field.columns) return;
+
+    const newColumns = [...field.columns];
+    const minHeight = 20;
+    const newHeight = Math.max(minHeight, (newColumns[0]?.height || 30) + deltaY);
+    
+    // 모든 컬럼의 높이를 동일하게 조정
+    newColumns.forEach((col, index) => {
+      newColumns[index] = { ...col, height: newHeight };
+    });
+
+    setFields(prev => prev.map(f => 
+      f.id === resizingTableFieldId 
+        ? { ...f, columns: newColumns }
+        : f
+    ));
+    
+    setTableResizeStartY(event.clientY);
+  }, [isResizingTableRow, resizingTableFieldId, resizingRowIndex, tableResizeStartY, fields]);
+
+  // 표 행 높이 리사이즈 종료
+  const handleTableRowResizeEnd = React.useCallback(() => {
+    setIsResizingTableRow(false);
+    setResizingTableFieldId(null);
+    setResizingRowIndex(-1);
+    setTableResizeStartY(0);
+  }, []);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -552,7 +733,14 @@ const TemplateUploadPdf: React.FC = () => {
             width: Math.round(field.width),
             height: Math.round(field.height),
             page: field.page,
-            required: field.required
+            required: field.required,
+            type: field.type || 'text',
+            ...(field.type === 'table' ? { 
+              tableId: field.tableId, 
+              rows: field.rows, 
+              columnsCount: field.columnsCount, 
+              columns: field.columns 
+            } : {})
           };
         });
 
@@ -570,11 +758,27 @@ const TemplateUploadPdf: React.FC = () => {
       );
 
       console.log('PDF 템플릿 업로드 성공:', response.data);
-      // 성공 시 템플릿 목록으로 이동
-      navigate('/templates');
-    } catch (error: any) {
+      
+      // 성공 메시지 표시
+      setSuccessMessage('템플릿이 성공적으로 생성되었습니다!');
+      
+      // 2초 후 템플릿 디자이너로 이동
+      setTimeout(() => {
+        const templateId = response.data.template?.id;
+        if (templateId) {
+          navigate(`/templates/${templateId}`);
+        } else {
+          navigate('/templates');
+        }
+      }, 2000);
+    } catch (error) {
       console.error('PDF 템플릿 업로드 실패:', error);
-      setError(error.response?.data?.error || 'PDF 템플릿 업로드에 실패했습니다.');
+      const errorMessage = error && typeof error === 'object' && 'response' in error && 
+        error.response && typeof error.response === 'object' && 'data' in error.response &&
+        error.response.data && typeof error.response.data === 'object' && 'error' in error.response.data
+        ? String(error.response.data.error)
+        : 'PDF 템플릿 업로드에 실패했습니다.';
+      setError(errorMessage);
     } finally {
       setUploading(false);
     }
@@ -604,13 +808,30 @@ const TemplateUploadPdf: React.FC = () => {
       if (draggingField || resizingField) {
         handleMouseUp();
       }
+      if (isResizingTableColumn) {
+        handleTableColumnResizeEnd();
+      }
+      if (isResizingTableRow) {
+        handleTableRowResizeEnd();
+      }
+    };
+
+    const handleGlobalMouseMove = (event: MouseEvent) => {
+      if (isResizingTableColumn) {
+        handleTableColumnResize(event);
+      }
+      if (isResizingTableRow) {
+        handleTableRowResize(event);
+      }
     };
 
     document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('mousemove', handleGlobalMouseMove);
     return () => {
       document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
     };
-  }, [draggingField, resizingField]);
+  }, [draggingField, resizingField, handleMouseUp, isResizingTableColumn, handleTableColumnResize, handleTableColumnResizeEnd, isResizingTableRow, handleTableRowResize, handleTableRowResizeEnd]);
 
   if (step === 'upload') {
     return (
@@ -775,7 +996,9 @@ const TemplateUploadPdf: React.FC = () => {
                 <div
                   key={field.id}
                   className={`absolute border-2 group select-none ${
-                    draggingField === field.id 
+                    field.type === 'table' 
+                      ? 'border-dashed border-blue-400 bg-blue-50'
+                      : draggingField === field.id 
                       ? 'border-red-500 bg-red-100' 
                       : resizingField === field.id
                       ? 'border-green-500 bg-green-100'
@@ -792,9 +1015,73 @@ const TemplateUploadPdf: React.FC = () => {
                   onClick={(e) => handleFieldClick(field, e)}
                 >
                   <div className="text-xs text-blue-700 font-medium p-1 truncate pointer-events-none">
-                    {field.label}
+                    {field.type === 'table' ? '📊 ' : ''}{field.label}
                     {field.required && <span className="text-red-500">*</span>}
                   </div>
+                  
+                  {/* 표 필드인 경우 컬럼 분할선과 드래그 핸들 표시 */}
+                  {field.type === 'table' && field.columns && (
+                    <>
+                      {/* 컬럼 헤더 표시 */}
+                      <div className="absolute top-0 left-0 w-full h-6 bg-blue-100 border-b border-blue-300 flex">
+                        {field.columns.map((col, colIndex) => {
+                          return (
+                            <div
+                              key={colIndex}
+                              className="relative flex items-center justify-center text-xs text-blue-800 border-r border-blue-300 last:border-r-0"
+                              style={{ 
+                                width: col.width,
+                                minWidth: '20px'
+                              }}
+                            >
+                              <span className="truncate px-1">{col.title}</span>
+                              
+                              {/* 컬럼 리사이즈 핸들 (마지막 컬럼 제외) */}
+                              {colIndex < field.columns!.length - 1 && (
+                                <div
+                                  className="absolute right-0 top-0 w-1 h-full bg-blue-400 cursor-col-resize opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleTableColumnResizeStart(field.id, colIndex, e)}
+                                  style={{ right: '-0.5px' }}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* 행 가이드라인 및 높이 리사이즈 핸들 */}
+                      {Array.from({ length: (field.rows || 1) }, (_, rowIndex) => {
+                        // 각 행의 높이를 컬럼 정보에서 가져오거나 기본값 사용
+                        const rowHeight = field.columns?.[0]?.height || 28;
+                        const cumulativeHeight = 24 + (rowIndex + 1) * rowHeight;
+                        
+                        return (
+                          <div key={`row-${rowIndex}`}>
+                            {/* 행 구분선 (마지막 행 제외) */}
+                            {rowIndex < (field.rows || 1) - 1 && (
+                              <div
+                                className="absolute left-0 w-full border-t border-blue-200"
+                                style={{ 
+                                  top: cumulativeHeight,
+                                  height: '1px'
+                                }}
+                              />
+                            )}
+                            
+                            {/* 행 높이 리사이즈 핸들 (각 행 하단) */}
+                            <div
+                              className="absolute left-0 w-full h-1 bg-blue-400 cursor-row-resize opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+                              style={{ 
+                                top: cumulativeHeight - 0.5,
+                                zIndex: 20
+                              }}
+                              onMouseDown={(e) => handleTableRowResizeStart(field.id, rowIndex, e)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                   
                   {/* 리사이즈 핸들 */}
                   <div
@@ -813,6 +1100,84 @@ const TemplateUploadPdf: React.FC = () => {
         {/* 우측 필드 관리 패널 */}
         <div className="w-80 bg-white border-l">
           <div className="p-6 space-y-6">
+            {/* 추가 모드 패널 */}
+            <div className="space-y-3 border rounded p-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium">추가 모드</span>
+                <div className="space-x-2">
+                  <button 
+                    className={`px-2 py-1 text-xs rounded ${addMode==='text' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                    onClick={()=>{setAddMode('text'); setIsAddingTable(false);}}
+                  >
+                    텍스트
+                  </button>
+                  <button 
+                    className={`px-2 py-1 text-xs rounded ${addMode==='table' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                    onClick={()=>{setAddMode('table'); setIsAddingTable(true);}}
+                  >
+                    표
+                  </button>
+                </div>
+              </div>
+              {addMode === 'table' && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">행 수</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
+                        value={tableRowsInput} 
+                        onChange={e=>setTableRowsInput(parseInt(e.target.value||'1'))} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">열 수</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
+                        value={tableColsInput} 
+                        onChange={e=>setTableColsInput(parseInt(e.target.value||'1'))} 
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">표 너비 (px)</label>
+                      <input 
+                        type="number" 
+                        min={100} 
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
+                        value={tableWidthInput} 
+                        onChange={e=>setTableWidthInput(parseInt(e.target.value||'400'))} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">표 높이 (px)</label>
+                      <input 
+                        type="number" 
+                        min={60} 
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
+                        value={tableHeightInput} 
+                        onChange={e=>setTableHeightInput(parseInt(e.target.value||'120'))} 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">1행 헤더(콤마로 구분)</label>
+                    <input 
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
+                      value={tableHeaderInput} 
+                      onChange={e=>setTableHeaderInput(e.target.value)} 
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">좌측 PDF 원하는 위치를 클릭하면 표가 추가됩니다.</p>
+                </div>
+              )}
+            </div>
+
             {/* 템플릿 정보 */}
             <div className="space-y-4">
               <h3 className="font-medium text-gray-900">템플릿 정보</h3>
@@ -843,6 +1208,82 @@ const TemplateUploadPdf: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* 선택된 표 필드 편집 */}
+            {selectedField && selectedField.type === 'table' && selectedField.columns && (
+              <div className="space-y-4 border rounded p-3">
+                <h3 className="font-medium text-gray-900">📊 표 컬럼 편집</h3>
+                <div className="space-y-3">
+                  {selectedField.columns.map((column, index) => (
+                    <div key={index} className="border rounded p-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-gray-600">컬럼 {index + 1}</span>
+                        <span className="text-xs text-gray-500">{Math.round(column.width)}×{Math.round(column.height || 30)}px</span>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">제목</label>
+                        <input
+                          type="text"
+                          value={column.title}
+                          onChange={(e) => {
+                            const newColumns = [...selectedField.columns!];
+                            newColumns[index] = { ...newColumns[index], title: e.target.value };
+                            const updatedField = { ...selectedField, columns: newColumns };
+                            setSelectedField(updatedField);
+                            setFields(prev => prev.map(f => f.id === selectedField.id ? updatedField : f));
+                          }}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">너비 (px)</label>
+                          <input
+                            type="number"
+                            min={30}
+                            value={Math.round(column.width)}
+                            onChange={(e) => {
+                              const newWidth = parseInt(e.target.value) || 30;
+                              const newColumns = [...selectedField.columns!];
+                              newColumns[index] = { 
+                                ...newColumns[index], 
+                                width: newWidth,
+                                width_ratio: String(newWidth)
+                              };
+                              const updatedField = { ...selectedField, columns: newColumns };
+                              setSelectedField(updatedField);
+                              setFields(prev => prev.map(f => f.id === selectedField.id ? updatedField : f));
+                            }}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1">높이 (px)</label>
+                          <input
+                            type="number"
+                            min={20}
+                            value={Math.round(column.height || 30)}
+                            onChange={(e) => {
+                              const newHeight = parseInt(e.target.value) || 30;
+                              const newColumns = [...selectedField.columns!];
+                              newColumns[index] = { 
+                                ...newColumns[index], 
+                                height: newHeight
+                              };
+                              const updatedField = { ...selectedField, columns: newColumns };
+                              setSelectedField(updatedField);
+                              setFields(prev => prev.map(f => f.id === selectedField.id ? updatedField : f));
+                            }}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500">💡 팁: 표 위의 컬럼 경계선을 드래그해서 너비를 조정할 수도 있습니다.</p>
+              </div>
+            )}
 
             {/* 필드 목록 */}
             <div className="space-y-4">
@@ -885,6 +1326,18 @@ const TemplateUploadPdf: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* 성공 메시지 */}
+            {successMessage && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                <p className="text-sm text-green-600 flex items-center">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  {successMessage}
+                </p>
+              </div>
+            )}
 
             {/* 에러 메시지 */}
             {error && (

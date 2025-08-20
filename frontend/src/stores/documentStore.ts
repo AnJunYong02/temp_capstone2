@@ -10,6 +10,9 @@ export interface DocumentData {
   // 필드 정의와 데이터
   coordinateFields?: any[]; // 사용자가 추가한 필드들
   signatureFields?: any[]; // 서명 필드들
+  // 표 관련 데이터
+  'table init Fields'?: any[]; // 표 초기 정의들
+  'table data'?: any[]; // 표 셀 데이터들
 }
 
 export interface TaskInfo {
