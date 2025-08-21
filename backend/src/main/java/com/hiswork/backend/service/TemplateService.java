@@ -46,6 +46,7 @@ public class TemplateService {
         template.setIsPublic(request.getIsPublic());
         template.setPdfFilePath(request.getPdfFilePath());
         template.setPdfImagePath(request.getPdfImagePath());
+        template.setCoordinateFields(request.getCoordinateFields()); // 누락된 필드 추가
         
         return templateRepository.save(template);
     }

@@ -10,6 +10,13 @@ interface CoordinateField {
   type: 'text' | 'textarea' | 'date' | 'number';
   value?: string;
   required?: boolean;
+  // 테이블 정보 추가
+  tableData?: {
+    rows: number;
+    cols: number;
+    cells: string[][];
+    columnWidths?: number[];
+  };
 }
 
 interface DocumentPreviewModalProps {
@@ -226,6 +233,39 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                     value: field.value
                   });
                   
+                  // 테이블 필드인지 확인
+                  let isTableField = false;
+                  let tableData = null;
+                  
+                  try {
+                    if (field.value && typeof field.value === 'string') {
+                      const parsedValue = JSON.parse(field.value);
+                      if (parsedValue.rows && parsedValue.cols && parsedValue.cells) {
+                        isTableField = true;
+                        tableData = parsedValue;
+                        
+                        // columnWidths가 없으면 기본값 설정 (균등 분배)
+                        if (!tableData.columnWidths) {
+                          tableData.columnWidths = Array(tableData.cols).fill(1 / tableData.cols);
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    // JSON 파싱 실패 시 일반 필드로 처리
+                    isTableField = false;
+                  }
+                  
+                  console.log('🔍 미리보기 모달 - 테이블 필드 확인:', {
+                    fieldId: field.id,
+                    isTableField,
+                    tableData: tableData ? {
+                      rows: tableData.rows, 
+                      cols: tableData.cols,
+                      hasColumnWidths: !!tableData.columnWidths,
+                      columnWidths: tableData.columnWidths
+                    } : null
+                  });
+                  
                   // 퍼센트 기반 위치 계산
                   const leftPercent = (field.x / 1240) * 100;
                   const topPercent = (field.y / 1754) * 100;
@@ -243,21 +283,94 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                         height: `${heightPercent}%`,
                       }}
                     >
-                      <div 
-                        className="text-gray-900 font-medium leading-tight w-full"
-                        style={{
-                          fontSize: `${Math.max(Math.min(field.height * 0.6 * scale, 16 * scale), 8 * scale)}px`, // 스케일에 맞춰 폰트 크기 조정
-                          lineHeight: '1.2',
-                          textAlign: 'center',
-                          overflow: 'hidden',
-                          wordBreak: 'keep-all',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {field.value}
-                      </div>
+                      {isTableField && tableData ? (
+                        // 테이블 렌더링
+                        <div 
+                          className="w-full h-full" 
+                          style={{
+                            overflow: 'hidden', // 넘치는 부분 숨김
+                            maxHeight: `${field.height}px` // 절대 원래 높이를 넘지 않음
+                          }}
+                        >
+                          <table 
+                            className="w-full border-collapse"
+                            style={{
+                              tableLayout: 'fixed', // 고정 레이아웃으로 컬럼 너비 적용
+                              border: '2px solid #6b7280', // 외곽 테두리를 더 두껍게
+                              height: '100%' // 테이블이 컨테이너 높이를 넘지 않도록 고정
+                            }}
+                          >
+                            {/* 컬럼 너비를 위한 colgroup */}
+                            {tableData.columnWidths && (
+                              <colgroup>
+                                {tableData.columnWidths.map((width: number, index: number) => (
+                                  <col key={index} style={{ width: `${width * 100}%` }} />
+                                ))}
+                              </colgroup>
+                            )}
+                            <tbody>
+                              {Array(tableData.rows).fill(null).map((_, rowIndex) => {
+                                // 테이블 테두리와 여유 공간을 고려한 실제 사용 가능한 높이 계산
+                                const availableHeight = Math.max(field.height - 8, 20); // 테두리와 여유 공간 8px 제외, 최소 20px
+                                const rowHeight = Math.max(Math.floor(availableHeight / tableData.rows), 15); // 최소 15px 행 높이
+                                
+                                return (
+                                  <tr 
+                                    key={rowIndex}
+                                    style={{
+                                      height: `${rowHeight}px`, // 계산된 행 높이
+                                      maxHeight: `${rowHeight}px` // 최대 높이도 제한
+                                    }}
+                                  >
+                                    {Array(tableData.cols).fill(null).map((_, colIndex) => {
+                                      const cellValue = tableData.cells?.[rowIndex]?.[colIndex] || '';
+                                      return (
+                                        <td 
+                                          key={colIndex}
+                                          className="text-center text-gray-900 font-medium"
+                                          style={{
+                                            fontSize: `${Math.max(Math.min(rowHeight * 0.3 * scale, 10 * scale), 8 * scale)}px`, // 폰트 크기 더 작게
+                                            padding: `${Math.min(1 * scale, rowHeight * 0.05)}px`, // 패딩 더 작게
+                                            lineHeight: '1.1', // 라인 높이 줄임
+                                            wordBreak: 'break-all',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis', // 긴 텍스트는 생략 표시
+                                            border: '1.5px solid #6b7280',
+                                            height: `${rowHeight}px`,
+                                            maxHeight: `${rowHeight}px`,
+                                            minHeight: `${rowHeight}px`, // 최소 높이도 고정
+                                            verticalAlign: 'middle',
+                                            boxSizing: 'border-box' // 테두리 포함하여 크기 계산
+                                          }}
+                                        >
+                                          {cellValue}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        // 일반 필드 렌더링
+                        <div 
+                          className="text-gray-900 font-medium leading-tight w-full"
+                          style={{
+                            fontSize: `${Math.max(Math.min(field.height * 0.6 * scale, 16 * scale), 8 * scale)}px`, // 스케일에 맞춰 폰트 크기 조정
+                            lineHeight: '1.2',
+                            textAlign: 'center',
+                            overflow: 'hidden',
+                            wordBreak: 'keep-all',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          {field.value}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
