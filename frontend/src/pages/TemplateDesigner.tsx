@@ -13,10 +13,19 @@ const TemplateDesigner: React.FC = () => {
   const [selectedField, setSelectedField] = useState<CoordinateField | null>(null);
   const [assignedEmailInput, setAssignedEmailInput] = useState('');
   const [addMode, setAddMode] = useState<'text' | 'table'>('text');
+  const [isAddingField, setIsAddingField] = useState(false); // 필드 추가 모드 상태
   const [isAddingTable, setIsAddingTable] = useState(false);
-  const [tableRowsInput, setTableRowsInput] = useState<number>(3);
-  const [tableColsInput, setTableColsInput] = useState<number>(3);
-  const [tableHeaderInput, setTableHeaderInput] = useState<string>('컬럼1,컬럼2,컬럼3');
+  
+  // 텍스트 입력 모달 상태
+  const [showTextInputModal, setShowTextInputModal] = useState(false);
+  const [pendingTextField, setPendingTextField] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [textFieldLabel, setTextFieldLabel] = useState('');
+  
+  // 표 생성 모달 상태
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [pendingTableField, setPendingTableField] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [modalTableRows, setModalTableRows] = useState<number>(3);
+  const [modalTableCols, setModalTableCols] = useState<number>(3);
 
   useEffect(() => {
     if (id) getTemplate(parseInt(id));
@@ -47,63 +56,115 @@ const TemplateDesigner: React.FC = () => {
     return `http://localhost:8080/api/files/pdf-template-images/${filename}`;
   }, [currentTemplate]);
 
-  const addFieldAt = (x: number, y: number) => {
-    if (addMode === 'table' && isAddingTable) {
-      const columnsTitles = tableHeaderInput.split(',').map(s => s.trim()).filter(Boolean);
-      const cols = Math.max(1, tableColsInput);
-      const rows = Math.max(1, tableRowsInput);
-      const normalizedTitles = Array.from({ length: cols }, (_, i) => columnsTitles[i] || `컬럼${i + 1}`);
-      const defaultWidth = 400;
-      const defaultHeight = 30 + rows * 28;
-      const columnWidth = Math.floor(defaultWidth / cols);
-      const columns = normalizedTitles.map((title, idx) => ({
-        title,
-        width: columnWidth,
-        width_ratio: '1',
-        location_column: String(idx)
-      }));
-
-      const newField: CoordinateField = {
-        id: `table_${Date.now()}`,
-        x: Math.round(x),
-        y: Math.round(y),
-        width: defaultWidth,
-        height: defaultHeight,
-        label: '표',
-        type: 'table',
-        value: '',
-        fontSize: 12,
-        fontColor: '#000000',
-        required: false,
-        // @ts-ignore - table 전용 속성
-        rows: rows,
-        columnsCount: cols,
-        columns,
-        tableId: `tbl_${Date.now()}`
-      } as any;
-      setFields(prev => [...prev, newField]);
-      setIsAddingTable(false);
-      setAddMode('text');
+  const addFieldAt = (x: number, y: number, width?: number, height?: number) => {
+    // 필드 추가 모드가 아닐 때는 필드 생성하지 않음
+    if (!isAddingField || !width || !height) {
       return;
     }
 
-    const newField: CoordinateField = {
-      id: `field_${Date.now()}`,
+    if (addMode === 'table') {
+      // 표 생성 모달 표시
+      setPendingTableField({
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(width),
+        height: Math.round(height)
+      });
+      setShowTableModal(true);
+      setIsAddingField(false); // 필드 추가 모드 해제
+      return;
+    }
+
+    // 텍스트 필드 생성 모달 표시
+    setPendingTextField({
       x: Math.round(x),
       y: Math.round(y),
-      width: 120,
-      height: 30,
-      label: '새 필드',
+      width: Math.round(width),
+      height: Math.round(height)
+    });
+    setTextFieldLabel(''); // 초기화
+    setShowTextInputModal(true);
+    setIsAddingField(false); // 필드 추가 모드 해제
+  };
+
+  const handleFieldSelect = (f: CoordinateField | null) => setSelectedField(f);
+
+  // 텍스트 필드 생성 확인
+  const handleTextFieldConfirm = () => {
+    if (!pendingTextField) return;
+    
+    const newField: CoordinateField = {
+      id: `field_${Date.now()}`,
+      x: pendingTextField.x,
+      y: pendingTextField.y,
+      width: pendingTextField.width,
+      height: pendingTextField.height,
+      label: textFieldLabel || '새 필드',
       type: 'text',
       value: '',
       fontSize: 12,
       fontColor: '#000000',
       required: false
     };
+    
     setFields(prev => [...prev, newField]);
+    setShowTextInputModal(false);
+    setPendingTextField(null);
+    setTextFieldLabel('');
   };
 
-  const handleFieldSelect = (f: CoordinateField | null) => setSelectedField(f);
+  // 표 생성 확인
+  const handleTableConfirm = () => {
+    if (!pendingTableField) return;
+    
+    const cols = Math.max(1, modalTableCols);
+    const rows = Math.max(1, modalTableRows);
+    
+    // 각 칸의 크기를 동일하게 설정
+    const columnWidth = Math.floor(pendingTableField.width / cols);
+    const rowHeight = Math.floor((pendingTableField.height - 30) / rows); // 헤더 높이 30px 제외
+    
+    const columns = Array.from({ length: cols }, (_, idx) => ({
+      title: `컬럼${idx + 1}`,
+      width: columnWidth,
+      height: rowHeight,
+      location_column: idx + 1
+    }));
+
+    const newField: CoordinateField = {
+      id: `table_${Date.now()}`,
+      x: pendingTableField.x,
+      y: pendingTableField.y,
+      width: pendingTableField.width,
+      height: pendingTableField.height,
+      label: '표',
+      type: 'table',
+      value: '',
+      fontSize: 12,
+      fontColor: '#000000',
+      required: false,
+      rows: rows,
+      columnsCount: cols,
+      columns,
+      tableId: `tbl_${Date.now()}`
+    } as any;
+    
+    setFields(prev => [...prev, newField]);
+    setShowTableModal(false);
+    setPendingTableField(null);
+  };
+
+  // 모달 취소
+  const handleTextFieldCancel = () => {
+    setShowTextInputModal(false);
+    setPendingTextField(null);
+    setTextFieldLabel('');
+  };
+
+  const handleTableCancel = () => {
+    setShowTableModal(false);
+    setPendingTableField(null);
+  };
 
   const handleFieldChange = (prop: keyof CoordinateField, value: any) => {
     if (!selectedField) return;
@@ -159,7 +220,8 @@ const TemplateDesigner: React.FC = () => {
               scale={1}
               onFieldSelect={handleFieldSelect}
               selectedFieldId={selectedField?.id || null}
-              onAddField={(x,y) => addFieldAt(x,y)}
+              onAddField={(x,y,width,height) => addFieldAt(x,y,width,height)}
+              isAddingField={isAddingField}
             />
           </div>
           <div className="lg:col-span-1">
@@ -171,27 +233,47 @@ const TemplateDesigner: React.FC = () => {
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium">추가 모드</span>
                     <div className="space-x-2">
-                      <button className={`px-2 py-1 text-xs rounded ${addMode==='text' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} onClick={()=>{setAddMode('text'); setIsAddingTable(false);}}>텍스트</button>
-                      <button className={`px-2 py-1 text-xs rounded ${addMode==='table' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} onClick={()=>{setAddMode('table'); setIsAddingTable(true);}}>표</button>
+                      <button 
+                        className={`px-2 py-1 text-xs rounded ${addMode==='text' && isAddingField ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                        onClick={()=>{
+                          setAddMode('text'); 
+                          setIsAddingTable(false); 
+                          setIsAddingField(!isAddingField || addMode !== 'text'); // 토글 또는 활성화
+                        }}
+                      >
+                        {addMode === 'text' && isAddingField ? '텍스트 추가 중...' : '텍스트'}
+                      </button>
+                      <button 
+                        className={`px-2 py-1 text-xs rounded ${addMode==='table' && isAddingField ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                        onClick={()=>{
+                          setAddMode('table'); 
+                          setIsAddingTable(true); 
+                          setIsAddingField(!isAddingField || addMode !== 'table'); // 토글 또는 활성화
+                        }}
+                      >
+                        {addMode === 'table' && isAddingField ? '표 추가 중...' : '표'}
+                      </button>
                     </div>
                   </div>
+                  
+                  {/* 텍스트 모드 안내 */}
+                  {addMode === 'text' && (
+                    <div className="text-xs text-gray-600">
+                      {isAddingField ? (
+                        <p className="text-green-600 font-medium">📝 PDF에서 드래그하여 텍스트 박스 크기를 설정하고 생성하세요.</p>
+                      ) : (
+                        <p>텍스트 버튼을 클릭한 후 PDF에서 드래그하여 생성하세요.</p>
+                      )}
+                    </div>
+                  )}
+                  
                   {addMode === 'table' && (
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">행 수</label>
-                          <input type="number" min={1} className="input" value={tableRowsInput} onChange={e=>setTableRowsInput(parseInt(e.target.value||'1'))} />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-600 mb-1">열 수</label>
-                          <input type="number" min={1} className="input" value={tableColsInput} onChange={e=>setTableColsInput(parseInt(e.target.value||'1'))} />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 mb-1">1행 헤더(콤마로 구분)</label>
-                        <input className="input" value={tableHeaderInput} onChange={e=>setTableHeaderInput(e.target.value)} />
-                      </div>
-                      <p className="text-xs text-gray-500">좌측 PDF 원하는 위치를 클릭하면 표가 추가됩니다.</p>
+                    <div className="text-xs text-gray-600">
+                      {isAddingField ? (
+                        <p className="text-green-600 font-medium">📋 PDF에서 드래그하여 표 크기를 설정하고 생성하세요.</p>
+                      ) : (
+                        <p>표 버튼을 클릭한 후 PDF에서 드래그하여 생성하세요.</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -329,6 +411,111 @@ const TemplateDesigner: React.FC = () => {
                   <div className="text-sm text-gray-500">좌측 PDF를 클릭해 필드를 추가하세요.</div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 텍스트 입력 모달 */}
+      {showTextInputModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">텍스트 필드 생성</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  필드 라벨
+                </label>
+                <input
+                  type="text"
+                  value={textFieldLabel}
+                  onChange={(e) => setTextFieldLabel(e.target.value)}
+                  placeholder="예: 이름, 날짜, 주소 등"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+              </div>
+              {pendingTextField && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  <p>위치: ({pendingTextField.x}, {pendingTextField.y})</p>
+                  <p>크기: {pendingTextField.width} × {pendingTextField.height}px</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleTextFieldCancel}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleTextFieldConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                disabled={!textFieldLabel.trim()}
+              >
+                생성
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 표 생성 모달 */}
+      {showTableModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">표 생성</h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    행 수
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={modalTableRows}
+                    onChange={(e) => setModalTableRows(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    열 수
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={modalTableCols}
+                    onChange={(e) => setModalTableCols(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              {pendingTableField && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  <p>위치: ({pendingTableField.x}, {pendingTableField.y})</p>
+                  <p>크기: {pendingTableField.width} × {pendingTableField.height}px</p>
+                  <p className="mt-1 text-xs">각 칸 크기: {Math.floor(pendingTableField.width / modalTableCols)} × {Math.floor((pendingTableField.height - 30) / modalTableRows)}px</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleTableCancel}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleTableConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                생성
+              </button>
             </div>
           </div>
         </div>

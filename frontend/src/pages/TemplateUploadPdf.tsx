@@ -270,14 +270,20 @@ const TemplateUploadPdf: React.FC = () => {
   const [newFieldPosition, setNewFieldPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [step, setStep] = useState<'upload' | 'edit'>('upload');
   
-  // 표 추가 관련 상태
+  // 필드 추가 관련 상태
   const [addMode, setAddMode] = useState<'text' | 'table'>('text');
-  const [isAddingTable, setIsAddingTable] = useState(false);
-  const [tableRowsInput, setTableRowsInput] = useState<number>(3);
-  const [tableColsInput, setTableColsInput] = useState<number>(3);
-  const [tableHeaderInput, setTableHeaderInput] = useState<string>('컬럼1,컬럼2,컬럼3');
-  const [tableWidthInput, setTableWidthInput] = useState<number>(400);
-  const [tableHeightInput, setTableHeightInput] = useState<number>(120);
+  const [isAddingField, setIsAddingField] = useState(false); // 필드 추가 모드 상태
+  
+  // 텍스트 입력 모달 상태
+  const [showTextInputModal, setShowTextInputModal] = useState(false);
+  const [pendingTextField, setPendingTextField] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [textFieldLabel, setTextFieldLabel] = useState('');
+  
+  // 표 생성 모달 상태
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [pendingTableField, setPendingTableField] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [modalTableRows, setModalTableRows] = useState<number>(3);
+  const [modalTableCols, setModalTableCols] = useState<number>(3);
   
   // 성공 메시지 상태
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -301,6 +307,11 @@ const TemplateUploadPdf: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [preventClick, setPreventClick] = useState(false);
   const [mouseDownPos, setMouseDownPos] = useState<{ x: number; y: number } | null>(null);
+  
+  // 텍스트 박스 드래그 생성을 위한 상태
+  const [isCreatingField, setIsCreatingField] = useState(false);
+  const [fieldDragStart, setFieldDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [fieldDragCurrent, setFieldDragCurrent] = useState<{ x: number; y: number } | null>(null);
 
   const handleFileSelect = async (file: File) => {
     if (file.type !== 'application/pdf') {
@@ -354,7 +365,7 @@ const TemplateUploadPdf: React.FC = () => {
     if (step !== 'edit') return;
     
     // preventClick이 true이거나 드래그 관련 상태가 있으면 완전히 차단
-    if (preventClick || draggingField || resizingField || isDragging) {
+    if (preventClick || draggingField || resizingField || isDragging || isCreatingField) {
       event.stopPropagation();
       event.preventDefault();
       return;
@@ -364,52 +375,36 @@ const TemplateUploadPdf: React.FC = () => {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    // 표 추가 모드인 경우
-    if (addMode === 'table' && isAddingTable) {
-      const columnsTitles = tableHeaderInput.split(',').map(s => s.trim()).filter(Boolean);
-      const cols = Math.max(1, tableColsInput);
-      const rows = Math.max(1, tableRowsInput);
-      const normalizedTitles = Array.from({ length: cols }, (_, i) => columnsTitles[i] || `컬럼${i + 1}`);
-      const totalWidth = Math.max(100, tableWidthInput);
-      const totalHeight = Math.max(60, tableHeightInput);
-      const headerHeight = 30; // 헤더 높이 고정
-      const bodyHeight = totalHeight - headerHeight;
-      const cellHeight = Math.floor(bodyHeight / Math.max(1, rows));
-      const columnWidth = Math.floor(totalWidth / cols);
-      
-      const columns = normalizedTitles.map((title, idx) => ({
-        title,
-        width: columnWidth,
-        height: cellHeight,
-        width_ratio: String(columnWidth),
-        location_column: String(idx + 1)
-      }));
-
-      const newTableField: TemplateField = {
-        id: `table_${Date.now()}`,
-        label: '표',
-        x: Math.round(x),
-        y: Math.round(y),
-        width: totalWidth,
-        height: totalHeight,
-        page: 1,
-        required: false,
-        type: 'table',
-        rows: rows,
-        columnsCount: cols,
-        columns,
-        tableId: `tbl_${Date.now()}`
-      };
-      
-      setFields(prev => [...prev, newTableField]);
-      setIsAddingTable(false);
-      setAddMode('text');
+    // 필드 추가 모드가 아닐 때는 기존 방식 (새 필드 모달)
+    if (!isAddingField) {
+      setNewFieldPosition({ x: Math.round(x), y: Math.round(y) });
+      setIsNewFieldModalOpen(true);
       return;
     }
+  };
+
+  // 마우스 다운으로 드래그 시작
+  const handlePdfMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (step !== 'edit') return;
     
-    // 새 필드 생성을 위한 위치 저장 및 모달 열기
-    setNewFieldPosition({ x: Math.round(x), y: Math.round(y) });
-    setIsNewFieldModalOpen(true);
+    // preventClick이 true이거나 드래그 관련 상태가 있으면 완전히 차단
+    if (preventClick || draggingField || resizingField || isDragging) {
+      event.stopPropagation();
+      event.preventDefault();
+      return;
+    }
+
+    // 필드 추가 모드일 때만 드래그 생성 시작
+    if (isAddingField) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      
+      setIsCreatingField(true);
+      setFieldDragStart({ x, y });
+      setFieldDragCurrent({ x, y });
+      event.preventDefault();
+    }
   };
 
   const handleNewFieldSave = (field: TemplateField) => {
@@ -437,6 +432,79 @@ const TemplateUploadPdf: React.FC = () => {
     if (selectedField) {
       setFields(prev => prev.filter(f => f.id !== selectedField.id));
     }
+  };
+
+  // 텍스트 필드 생성 확인
+  const handleTextFieldConfirm = () => {
+    if (!pendingTextField) return;
+    
+    const newField: TemplateField = {
+      id: `field_${Date.now()}`,
+      label: textFieldLabel || '새 필드',
+      x: pendingTextField.x,
+      y: pendingTextField.y,
+      width: pendingTextField.width,
+      height: pendingTextField.height,
+      page: 1,
+      required: false
+    };
+    
+    setFields(prev => [...prev, newField]);
+    setShowTextInputModal(false);
+    setPendingTextField(null);
+    setTextFieldLabel('');
+  };
+
+  // 표 생성 확인
+  const handleTableConfirm = () => {
+    if (!pendingTableField) return;
+    
+    const cols = Math.max(1, modalTableCols);
+    const rows = Math.max(1, modalTableRows);
+    
+    // 각 칸의 크기를 동일하게 설정
+    const columnWidth = Math.floor(pendingTableField.width / cols);
+    const rowHeight = Math.floor((pendingTableField.height - 30) / rows); // 헤더 높이 30px 제외
+    
+    const columns = Array.from({ length: cols }, (_, idx) => ({
+      title: `컬럼${idx + 1}`,
+      width: columnWidth,
+      height: rowHeight,
+      width_ratio: String(columnWidth),
+      location_column: String(idx + 1)
+    }));
+
+    const newField: TemplateField = {
+      id: `table_${Date.now()}`,
+      label: '표',
+      x: pendingTableField.x,
+      y: pendingTableField.y,
+      width: pendingTableField.width,
+      height: pendingTableField.height,
+      page: 1,
+      required: false,
+      type: 'table',
+      rows: rows,
+      columnsCount: cols,
+      columns,
+      tableId: `tbl_${Date.now()}`
+    };
+    
+    setFields(prev => [...prev, newField]);
+    setShowTableModal(false);
+    setPendingTableField(null);
+  };
+
+  // 모달 취소
+  const handleTextFieldCancel = () => {
+    setShowTextInputModal(false);
+    setPendingTextField(null);
+    setTextFieldLabel('');
+  };
+
+  const handleTableCancel = () => {
+    setShowTableModal(false);
+    setPendingTableField(null);
   };
 
   // 필드 클릭 처리 (편집 모달 열기)
@@ -490,6 +558,15 @@ const TemplateUploadPdf: React.FC = () => {
 
   // 마우스 이동 처리
   const handleMouseMove = (event: React.MouseEvent) => {
+    // 필드 드래그 생성 중일 때 현재 위치 업데이트
+    if (isCreatingField && fieldDragStart) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      setFieldDragCurrent({ x, y });
+      return;
+    }
+
     if (draggingField && dragStart && mouseDownPos) {
       const newX = event.clientX - dragStart.x;
       const newY = event.clientY - dragStart.y;
@@ -541,6 +618,45 @@ const TemplateUploadPdf: React.FC = () => {
 
   // 마우스 업 처리
   const handleMouseUp = React.useCallback((event?: React.MouseEvent) => {
+    // 필드 드래그 생성 완료
+    if (isCreatingField && fieldDragStart && fieldDragCurrent) {
+      const startX = Math.min(fieldDragStart.x, fieldDragCurrent.x);
+      const startY = Math.min(fieldDragStart.y, fieldDragCurrent.y);
+      const width = Math.abs(fieldDragCurrent.x - fieldDragStart.x);
+      const height = Math.abs(fieldDragCurrent.y - fieldDragStart.y);
+      
+      // 최소 크기 확인 후 필드 생성
+      if (width > 30 && height > 20) {
+        if (addMode === 'table') {
+          // 표 생성 모달 표시
+          setPendingTableField({
+            x: startX,
+            y: startY,
+            width: width,
+            height: height
+          });
+          setShowTableModal(true);
+        } else {
+          // 텍스트 필드 생성 모달 표시
+          setPendingTextField({
+            x: startX,
+            y: startY,
+            width: width,
+            height: height
+          });
+          setTextFieldLabel(''); // 초기화
+          setShowTextInputModal(true);
+        }
+        setIsAddingField(false); // 필드 추가 모드 해제
+      }
+      
+      // 드래그 상태 초기화
+      setIsCreatingField(false);
+      setFieldDragStart(null);
+      setFieldDragCurrent(null);
+      return;
+    }
+
     // 드래그 또는 리사이즈 중이었다면 이벤트 차단
     if (draggingField || resizingField) {
       if (event) {
@@ -566,7 +682,7 @@ const TemplateUploadPdf: React.FC = () => {
       setIsDragging(false);
       setPreventClick(false);
     }
-  }, [draggingField, resizingField, isDragging, preventClick]);
+  }, [isCreatingField, fieldDragStart, fieldDragCurrent, addMode, draggingField, resizingField, isDragging, preventClick]);
 
   // 표 컬럼 리사이즈 시작
   const handleTableColumnResizeStart = (fieldId: string, columnIndex: number, event: React.MouseEvent) => {
@@ -956,6 +1072,7 @@ const TemplateUploadPdf: React.FC = () => {
               className="relative bg-white shadow-sm border"
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
+              onMouseDown={handlePdfMouseDown}
               onClick={handlePdfClick}
               style={{
                 width: '1240px',
@@ -963,7 +1080,7 @@ const TemplateUploadPdf: React.FC = () => {
                 minWidth: '1240px', // 최소 크기를 원본 크기로 고정
                 minHeight: '1754px', // 최소 높이도 원본 크기로 고정
                 flexShrink: 0, // 컨테이너가 줄어들지 않도록 설정
-                cursor: 'crosshair'
+                cursor: isAddingField ? 'crosshair' : 'default'
               }}
             >
               {/* PDF 배경 이미지 - DocumentEditor와 동일한 방식 */}
@@ -989,6 +1106,36 @@ const TemplateUploadPdf: React.FC = () => {
                     <div className="text-sm mt-2">클릭하여 필드 추가</div>
                   </div>
                 </div>
+              )}
+
+              {/* 드래그 중 필드 미리보기 */}
+              {isCreatingField && fieldDragStart && fieldDragCurrent && (
+                (() => {
+                  const startX = Math.min(fieldDragStart.x, fieldDragCurrent.x);
+                  const startY = Math.min(fieldDragStart.y, fieldDragCurrent.y);
+                  const width = Math.abs(fieldDragCurrent.x - fieldDragStart.x);
+                  const height = Math.abs(fieldDragCurrent.y - fieldDragStart.y);
+                  
+                  // 최소 크기 제한
+                  if (width > 10 && height > 10) {
+                    return (
+                      <div
+                        className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-30 pointer-events-none"
+                        style={{
+                          left: startX,
+                          top: startY,
+                          width: width,
+                          height: height
+                        }}
+                      >
+                        <div className="text-xs text-blue-700 font-medium p-1">
+                          {addMode === 'table' ? '📊 표' : '📝 텍스트'} ({Math.round(width)} × {Math.round(height)})
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()
               )}
                 
               {/* 필드 오버레이 */}
@@ -1106,74 +1253,44 @@ const TemplateUploadPdf: React.FC = () => {
                 <span className="text-sm font-medium">추가 모드</span>
                 <div className="space-x-2">
                   <button 
-                    className={`px-2 py-1 text-xs rounded ${addMode==='text' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
-                    onClick={()=>{setAddMode('text'); setIsAddingTable(false);}}
+                    className={`px-2 py-1 text-xs rounded ${addMode==='text' && isAddingField ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                    onClick={()=>{
+                      setAddMode('text'); 
+                      setIsAddingField(!isAddingField || addMode !== 'text'); // 토글 또는 활성화
+                    }}
                   >
-                    텍스트
+                    {addMode === 'text' && isAddingField ? '텍스트 추가 중...' : '텍스트'}
                   </button>
                   <button 
-                    className={`px-2 py-1 text-xs rounded ${addMode==='table' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
-                    onClick={()=>{setAddMode('table'); setIsAddingTable(true);}}
+                    className={`px-2 py-1 text-xs rounded ${addMode==='table' && isAddingField ? 'bg-blue-600 text-white' : 'bg-gray-100'}`} 
+                    onClick={()=>{
+                      setAddMode('table'); 
+                      setIsAddingField(!isAddingField || addMode !== 'table'); // 토글 또는 활성화
+                    }}
                   >
-                    표
+                    {addMode === 'table' && isAddingField ? '표 추가 중...' : '표'}
                   </button>
                 </div>
               </div>
+              
+              {/* 텍스트 모드 안내 */}
+              {addMode === 'text' && (
+                <div className="text-xs text-gray-600">
+                  {isAddingField ? (
+                    <p className="text-green-600 font-medium">📝 PDF에서 드래그하여 텍스트 박스 크기를 설정하고 생성하세요.</p>
+                  ) : (
+                    <p>텍스트 버튼을 클릭한 후 PDF에서 드래그하여 생성하세요.</p>
+                  )}
+                </div>
+              )}
+              
               {addMode === 'table' && (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">행 수</label>
-                      <input 
-                        type="number" 
-                        min={1} 
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
-                        value={tableRowsInput} 
-                        onChange={e=>setTableRowsInput(parseInt(e.target.value||'1'))} 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">열 수</label>
-                      <input 
-                        type="number" 
-                        min={1} 
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
-                        value={tableColsInput} 
-                        onChange={e=>setTableColsInput(parseInt(e.target.value||'1'))} 
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">표 너비 (px)</label>
-                      <input 
-                        type="number" 
-                        min={100} 
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
-                        value={tableWidthInput} 
-                        onChange={e=>setTableWidthInput(parseInt(e.target.value||'400'))} 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">표 높이 (px)</label>
-                      <input 
-                        type="number" 
-                        min={60} 
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
-                        value={tableHeightInput} 
-                        onChange={e=>setTableHeightInput(parseInt(e.target.value||'120'))} 
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">1행 헤더(콤마로 구분)</label>
-                    <input 
-                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs" 
-                      value={tableHeaderInput} 
-                      onChange={e=>setTableHeaderInput(e.target.value)} 
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500">좌측 PDF 원하는 위치를 클릭하면 표가 추가됩니다.</p>
+                <div className="text-xs text-gray-600">
+                  {isAddingField ? (
+                    <p className="text-green-600 font-medium">📋 PDF에서 드래그하여 표 크기를 설정하고 생성하세요.</p>
+                  ) : (
+                    <p>표 버튼을 클릭한 후 PDF에서 드래그하여 생성하세요.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -1384,6 +1501,111 @@ const TemplateUploadPdf: React.FC = () => {
         onSave={handleFieldEdit}
         onDelete={handleFieldDelete}
       />
+
+      {/* 텍스트 입력 모달 */}
+      {showTextInputModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">텍스트 필드 생성</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  필드 라벨
+                </label>
+                <input
+                  type="text"
+                  value={textFieldLabel}
+                  onChange={(e) => setTextFieldLabel(e.target.value)}
+                  placeholder="예: 이름, 날짜, 주소 등"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+              </div>
+              {pendingTextField && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  <p>위치: ({pendingTextField.x}, {pendingTextField.y})</p>
+                  <p>크기: {pendingTextField.width} × {pendingTextField.height}px</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleTextFieldCancel}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleTextFieldConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                disabled={!textFieldLabel.trim()}
+              >
+                생성
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 표 생성 모달 */}
+      {showTableModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">표 생성</h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    행 수
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={modalTableRows}
+                    onChange={(e) => setModalTableRows(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    열 수
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={modalTableCols}
+                    onChange={(e) => setModalTableCols(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              {pendingTableField && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  <p>위치: ({pendingTableField.x}, {pendingTableField.y})</p>
+                  <p>크기: {pendingTableField.width} × {pendingTableField.height}px</p>
+                  <p className="mt-1 text-xs">각 칸 크기: {Math.floor(pendingTableField.width / modalTableCols)} × {Math.floor((pendingTableField.height - 30) / modalTableRows)}px</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleTableCancel}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleTableConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                생성
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

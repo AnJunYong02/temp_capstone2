@@ -63,9 +63,8 @@ interface CoordinateField {
   columns?: Array<{
     title: string;
     width: number;
-    height?: number;
-    width_ratio?: string;
-    location_column: string;
+    height: number;
+    location_column: number;
   }>;
 }
 
@@ -103,8 +102,10 @@ const DocumentEditor: React.FC = () => {
       const newTableFontSizeMap: Record<string, number> = {};
       
       savedTableData.forEach((item: any) => {
-        if (item.tableId && item.location_row && item.location_column && item.value) {
-          const key = `${item.tableId}:${item.location_row}:${item.location_column}`;
+        if (item.tableId && item.position && item.value) {
+          // position은 "행-열" 형식 (예: "2-2")
+          const [row, col] = item.position.split('-');
+          const key = `${item.tableId}:${row}:${col}`;
           newTableDataMap[key] = item.value;
           newTableFontSizeMap[key] = item["font-size"] ? parseInt(item["font-size"]) : 10;
         }
@@ -272,28 +273,20 @@ const DocumentEditor: React.FC = () => {
       const currentData = currentDocument.data || {};
       const existingTableData = currentData["table data"] || [];
       
-      // 기존 데이터에서 해당 위치의 데이터 제거
+      // 기존 데이터에서 해당 위치의 데이터 제거 (position 형식: "행-열")
+      const position = `${row}-${col}`;
       const filteredTableData = existingTableData.filter(
-        (item: any) => !(item.tableId === tableId && 
-                        item.location_row === String(row) && 
-                        item.location_column === String(col))
+        (item: any) => !(item.tableId === tableId && item.position === position)
       );
       
       // 값이 비어있지 않으면 새 데이터 추가
       const updatedTableData = [...filteredTableData];
       if (value.trim()) {
-        // 해당 셀의 크기 정보 찾기
-        const tableField = coordinateFields.find(f => f.type === 'table' && (f.tableId === tableId || f.id === tableId));
-        const columnInfo = tableField?.columns?.find(c => c.location_column === String(col));
-        
         updatedTableData.push({
           tableId,
           value: value.trim(),
-          location_column: String(col),
-          location_row: String(row),
-          width: columnInfo?.width ? String(Math.round(columnInfo.width)) : "100",
-          height: columnInfo?.height ? String(Math.round(columnInfo.height)) : "30",
-          "font-size": String(fontSize || 10)
+          position: position, // "행-열" 형식
+          "font-size": fontSize || 10
         });
       }
 
@@ -921,8 +914,7 @@ const DocumentEditor: React.FC = () => {
                             const savedTableData = currentDocument?.data?.["table data"] || [];
                             const cellData = savedTableData.find((item: any) => 
                               item.tableId === tableId && 
-                              item.location_row === String(rowIndex) && 
-                              item.location_column === String(colIndex)
+                              item.position === `${rowIndex}-${colIndex}`
                             );
                             cellValue = cellData?.value || '';
                           }
