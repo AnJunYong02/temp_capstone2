@@ -28,10 +28,9 @@ export interface CoordinateField {
   columnsCount?: number;
   columns?: Array<{
     title: string;
-    width: number; // px
-    height?: number; // px
-    width_ratio?: string;
-    location_column: string;
+    width: number; // px (Double)
+    height: number; // px (Double)
+    location_column: number; // Long
   }>;
 }
 
@@ -45,7 +44,8 @@ interface PdfViewerProps {
   showFieldUI?: boolean; // true to show field backgrounds, borders, etc. (for signature fields)
   scale?: number;
   // 필드 생성 관련 props
-  onAddField?: (x: number, y: number) => void; // 필드 추가 버튼 클릭 시 호출
+  onAddField?: (x: number, y: number, width?: number, height?: number) => void; // 필드 추가 시 호출
+  isAddingField?: boolean; // 필드 추가 모드 여부
   // 서명 필드 관련 props
   isAddingSignatureField?: boolean; // 서명 필드 추가 모드
   onSignaturePositionSelect?: (field: CoordinateField) => void; // 서명 위치 선택 콜백
@@ -80,8 +80,8 @@ interface PdfViewerProps {
   tableData?: Array<{
     tableId: string;
     value: string;
-    location_column: string;
-    location_row: string;
+    position: string; // "행-열" 형식 (예: "2-2")
+    'font-size'?: number;
   }>; // 표 셀 데이터
 }
 
@@ -95,6 +95,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   showFieldUI = false,
   scale = 1,
   onAddField,
+  isAddingField = false,
   isAddingSignatureField = false,
   onSignaturePositionSelect,
   signatureFields = [],
@@ -118,9 +119,10 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     startX: number; 
     startY: number; 
   } | null>(null);
-  // 삭제된 사용되지 않는 상태 (경고 제거)
-  // const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  // const [currentDrag, setCurrentDrag] = useState<{ x: number; y: number } | null>(null);
+  // 텍스트 박스 드래그 생성을 위한 상태
+  const [isCreatingTextBox, setIsCreatingTextBox] = useState(false);
+  const [textBoxDragStart, setTextBoxDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [textBoxDragCurrent, setTextBoxDragCurrent] = useState<{ x: number; y: number } | null>(null);
   const [cursorStyle, setCursorStyle] = useState<string>('default');
   // 표 컬럼 리사이즈 상태
   // 표 컬럼 리사이즈 상태 (미사용 - 추후 확장)
@@ -243,6 +245,11 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     setResizeStartData(null);
     setCursorStyle('default');
     
+    // 텍스트 박스 드래그 생성 관련 상태 초기화
+    setIsCreatingTextBox(false);
+    setTextBoxDragStart(null);
+    setTextBoxDragCurrent(null);
+    
     // 서명 필드 관련 상태 초기화
     setIsDraggingSignatureField(false);
     setDraggedSignatureFieldId(null);
@@ -273,7 +280,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     });
     
     // 드래그나 리사이즈 중일 때는 초기화하지 않음
-    if (isDraggingField || isResizing || isDraggingSignatureField || isResizingSignatureField) {
+    if (isDraggingField || isResizing || isDraggingSignatureField || isResizingSignatureField || isCreatingTextBox) {
       console.log('🔄 coordinateFields 변경 - 편집 중이므로 초기화 건너뜀');
       return;
     }
@@ -290,8 +297,13 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     setResizingFieldId(null);
     setResizeStartData(null);
     
+    // 텍스트 박스 드래그 생성 관련 상태 초기화
+    setIsCreatingTextBox(false);
+    setTextBoxDragStart(null);
+    setTextBoxDragCurrent(null);
+    
     console.log('🧹 coordinateFields 변경 시 내부 상태 초기화 완료');
-  }, [coordinateFields, isDraggingField, isResizing, isDraggingSignatureField, isResizingSignatureField]);
+  }, [coordinateFields, isDraggingField, isResizing, isDraggingSignatureField, isResizingSignatureField, isCreatingTextBox]);
 
   // PDF 이미지 로드
   useEffect(() => {
@@ -365,12 +377,13 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
       console.log('🔄 필드 오버레이 다시 그리기:', {
         showFieldUI,
         isAddingSignatureField,
+        isCreatingTextBox,
         signatureFieldsCount: signatureFields.length,
         coordinateFieldsCount: coordinateFields.length
       });
       drawFieldOverlays();
     }
-  }, [coordinateFields, imageLoaded, scale, editable, selectedFieldId, signatureFields, isAddingSignatureField, showFieldUI]); // showFieldUI 추가
+  }, [coordinateFields, imageLoaded, scale, editable, selectedFieldId, signatureFields, isAddingSignatureField, showFieldUI, isCreatingTextBox, textBoxDragStart, textBoxDragCurrent]); // 텍스트 박스 생성 관련 상태 추가
 
   const drawFieldOverlays = () => {
     console.log('🎨 PdfViewer - 필드 오버레이 그리기 시작:', {
@@ -525,23 +538,24 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
                 const colIndex = ci + 1; // 1부터 시작
                 const colWidth = Math.max(20, col.width || Math.floor(width / Math.max(1, cols.length)));
                 
-                // 해당 셀의 데이터 찾기
+                // 해당 셀의 데이터 찾기 (position 형식: "행-열")
                 const cellData = tableData.find(item => 
                   item.tableId === tableId && 
-                  item.location_row === String(r) && 
-                  item.location_column === String(colIndex)
+                  item.position === `${r}-${colIndex}`
                 );
                 
                 if (cellData && cellData.value) {
                   const cellHeight = col.height || rowHeight;
                   const cellY = y + headerHeight + (r - 1) * cellHeight;
                   
-                  // 폰트 크기 자동 조정
-                  const textLength = cellData.value.length;
-                  let fontSize = 11;
-                  if (textLength > 20) fontSize = 9;
-                  if (textLength > 40) fontSize = 8;
-                  if (cellHeight < 25) fontSize = Math.max(8, Math.floor(cellHeight * 0.6));
+                  // 폰트 크기 설정 (저장된 font-size가 있으면 사용, 없으면 자동 조정)
+                  let fontSize = cellData['font-size'] || 11;
+                  if (!cellData['font-size']) {
+                    const textLength = cellData.value.length;
+                    if (textLength > 20) fontSize = 9;
+                    if (textLength > 40) fontSize = 8;
+                    if (cellHeight < 25) fontSize = Math.max(8, Math.floor(cellHeight * 0.6));
+                  }
                   
                   ctx.font = `${fontSize}px Arial`;
                   
@@ -689,6 +703,32 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
           }
         }
       });
+
+      // 텍스트 박스 드래그 생성 중일 때 미리보기 표시
+      if (isCreatingTextBox && textBoxDragStart && textBoxDragCurrent) {
+        const startX = Math.min(textBoxDragStart.x, textBoxDragCurrent.x);
+        const startY = Math.min(textBoxDragStart.y, textBoxDragCurrent.y);
+        const width = Math.abs(textBoxDragCurrent.x - textBoxDragStart.x);
+        const height = Math.abs(textBoxDragCurrent.y - textBoxDragStart.y);
+        
+        // 최소 크기 제한
+        if (width > 10 && height > 10) {
+          // 드래그 중인 텍스트 박스 미리보기
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+          ctx.fillRect(startX, startY, width, height);
+          
+          ctx.strokeStyle = '#3B82F6';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.strokeRect(startX, startY, width, height);
+          ctx.setLineDash([]);
+          
+          // 크기 정보 표시
+          ctx.fillStyle = '#1F2937';
+          ctx.font = '12px Arial';
+          ctx.fillText(`${Math.round(width)} × ${Math.round(height)}`, startX, startY - 5);
+        }
+      }
 
       // 서명 필드들 표시 (별도로 관리되는 서명 필드들)
       signatureFields.forEach((signatureField) => {
@@ -957,17 +997,27 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
       return;
     }
 
-    // 빈 공간 클릭 시 필드 생성 버튼 표시 (편집 모드에서만)
-    if (onAddField) {
-      onAddField(x, y);
+    // 빈 공간 클릭 시 텍스트 박스 드래그 생성 시작 (편집 모드이고 필드 추가 모드일 때만)
+    if (editable && isAddingField) {
+      setIsCreatingTextBox(true);
+      setTextBoxDragStart({ x, y });
+      setTextBoxDragCurrent({ x, y });
     }
-  }, [editable, coordinateFields, onFieldSelect, getImageCoordinates, findResizeHandle, isAddingSignatureField, onSignaturePositionSelect, signatureFields, editingSignatureFieldId, onSignatureFieldUpdate, onSignatureFieldSelect, onAddField]);
+  }, [editable, isAddingField, coordinateFields, onFieldSelect, getImageCoordinates, findResizeHandle, isAddingSignatureField, onSignaturePositionSelect, signatureFields, editingSignatureFieldId, onSignatureFieldUpdate, onSignatureFieldSelect, onAddField]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = getImageCoordinates(e.clientX, e.clientY);
 
     // 로컬 변수에서 드래그 상태 확인
     const dragState = dragStateRef.current;
+
+    // 텍스트 박스 드래그 생성 중일 때 현재 위치 업데이트
+    if (isCreatingTextBox && textBoxDragStart) {
+      setTextBoxDragCurrent({ x, y });
+      // 필드 오버레이 다시 그리기를 위해 강제 업데이트
+      drawFieldOverlays();
+      return;
+    }
 
     if (isResizingSignatureField && resizingSignatureFieldId && signatureFieldResizeStartData && onSignatureFieldUpdate) {
       // 서명 필드 리사이즈 처리
@@ -1033,6 +1083,26 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [isResizingSignatureField, resizingSignatureFieldId, signatureFieldResizeStartData, isDraggingSignatureField, draggedSignatureFieldId, signatureFieldDragOffset, isResizing, resizingFieldId, resizeStartData, isDraggingField, draggedFieldId, dragOffset, coordinateFields, onCoordinateFieldsChange, getImageCoordinates, onSignatureFieldUpdate]);
 
   const handleMouseUp = useCallback(() => {
+    // 텍스트 박스 드래그 생성 완료
+    if (isCreatingTextBox && textBoxDragStart && textBoxDragCurrent && onAddField) {
+      const startX = Math.min(textBoxDragStart.x, textBoxDragCurrent.x);
+      const startY = Math.min(textBoxDragStart.y, textBoxDragCurrent.y);
+      const width = Math.abs(textBoxDragCurrent.x - textBoxDragStart.x);
+      const height = Math.abs(textBoxDragCurrent.y - textBoxDragStart.y);
+      
+      // 최소 크기 확인 후 텍스트 박스 생성
+      if (width > 30 && height > 20) {
+        // 드래그로 생성된 텍스트 박스의 좌표와 크기를 전달
+        onAddField(startX, startY, width, height);
+      }
+      
+      // 드래그 상태 초기화
+      setIsCreatingTextBox(false);
+      setTextBoxDragStart(null);
+      setTextBoxDragCurrent(null);
+      return;
+    }
+
     if (isResizingSignatureField) {
       // 서명 필드 리사이즈 완료
       setIsResizingSignatureField(false);
@@ -1067,6 +1137,10 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   useEffect(() => {
     if (isAddingSignatureField) {
       setCursorStyle('crosshair');
+    } else if (isCreatingTextBox) {
+      setCursorStyle('crosshair');
+    } else if (isAddingField && editable) {
+      setCursorStyle('crosshair'); // 필드 추가 모드일 때 crosshair 커서
     } else if (isResizingSignatureField) {
       setCursorStyle('nw-resize');
     } else if (isDraggingSignatureField) {
@@ -1078,7 +1152,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
     } else {
       setCursorStyle('default');
     }
-  }, [isAddingSignatureField, isResizingSignatureField, isDraggingSignatureField, isResizing, isDraggingField]);
+  }, [isAddingSignatureField, isCreatingTextBox, isAddingField, editable, isResizingSignatureField, isDraggingSignatureField, isResizing, isDraggingField]);
 
   // 마우스 이동 시 커서 스타일 업데이트
   const handleMouseHover = useCallback(() => {
