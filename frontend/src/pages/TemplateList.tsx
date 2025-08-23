@@ -126,6 +126,12 @@ const TemplateList: React.FC = () => {
                       >
                         📄 문서 생성
                       </button>
+                      <Link
+                        to={`/templates/edit/${template.id}`}
+                        className="btn bg-green-600 text-white hover:bg-green-700 text-sm px-3 flex items-center justify-center"
+                      >
+                        ✏️
+                      </Link>
                       <button
                         onClick={() => handleDeleteTemplate(template.id, template.name)}
                         className="btn bg-red-600 text-white hover:bg-red-700 text-sm px-3"

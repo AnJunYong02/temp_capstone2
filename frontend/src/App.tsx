@@ -71,6 +71,16 @@ function App() {
           } 
         />
         <Route 
+          path="/templates/edit/:id" 
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <TemplateUploadPdf />
+              </Layout>
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
           path="/documents" 
           element={
             <ProtectedRoute>

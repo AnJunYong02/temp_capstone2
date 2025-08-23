@@ -8,6 +8,84 @@ import {
 import { debugTemplateField } from '../utils/coordinateDebugger';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 
+// 테이블 셀 편집 모달 컴포넌트
+interface TableCellEditModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (text: string) => void;
+  currentText: string;
+  cellPosition: { row: number; col: number };
+  tableName: string;
+}
+
+const TableCellEditModal: React.FC<TableCellEditModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  currentText,
+  cellPosition,
+  tableName
+}) => {
+  const [text, setText] = useState(currentText);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setText(currentText);
+    }
+  }, [isOpen, currentText]);
+
+  if (!isOpen) return null;
+
+  const handleSave = () => {
+    onSave(text);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+        <h3 className="text-lg font-semibold mb-4">테이블 셀 편집</h3>
+        
+        <div className="space-y-4">
+          <div className="text-sm text-gray-600">
+            <div><strong>테이블:</strong> {tableName}</div>
+            <div><strong>위치:</strong> {cellPosition.row + 1}행 {cellPosition.col + 1}열</div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              셀 내용
+            </label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 resize-none"
+              placeholder="셀에 표시할 텍스트를 입력하세요"
+              rows={3}
+              autoFocus
+            />
+          </div>
+        </div>
+
+        <div className="flex space-x-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            저장
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 간단한 debounce 유틸 함수
 const createDebounce = <T extends (...args: any[]) => any>(
   func: T,
@@ -20,31 +98,6 @@ const createDebounce = <T extends (...args: any[]) => any>(
   };
 };
 
-// 텍스트에 최적화된 폰트 크기 계산
-const calculateOptimalFontSize = (text: string, maxWidth: number, maxHeight: number): string => {
-  if (!text || maxWidth <= 0 || maxHeight <= 0) return '10px';
-  
-  // 기본 폰트 크기에서 시작
-  let fontSize = 12;
-  const minFontSize = 8;
-  const maxFontSize = 16;
-  
-  // 텍스트 길이에 따른 기본 조정
-  const textLength = text.length;
-  if (textLength > 20) fontSize = 10;
-  if (textLength > 40) fontSize = 9;
-  if (textLength > 60) fontSize = 8;
-  
-  // 셀 크기에 따른 조정
-  const heightBasedSize = Math.floor(maxHeight * 0.6); // 높이의 60%
-  const widthBasedSize = Math.floor(maxWidth / Math.max(1, textLength * 0.6)); // 너비 기반 추정
-  
-  fontSize = Math.min(fontSize, heightBasedSize, widthBasedSize);
-  fontSize = Math.max(minFontSize, Math.min(maxFontSize, fontSize));
-  
-  return `${fontSize}px`;
-};
-
 // CoordinateField 타입 정의 (PdfViewer에서 가져오지 않고 직접 정의)
 interface CoordinateField {
   id: string;
@@ -53,19 +106,16 @@ interface CoordinateField {
   width: number;
   height: number;
   label: string;
-  type: 'text' | 'textarea' | 'date' | 'number' | 'table';
+  type: 'text' | 'textarea' | 'date' | 'number';
   value?: string;
   required?: boolean;
-  // 표 전용 속성
-  tableId?: string;
-  rows?: number;
-  columnsCount?: number;
-  columns?: Array<{
-    title: string;
-    width: number;
-    height: number;
-    location_column: number;
-  }>;
+  // 테이블 정보 추가
+  tableData?: {
+    rows: number;
+    cols: number;
+    cells: string[][];
+    columnWidths?: number[]; // 컬럼 너비 비율 추가
+  };
 }
 
 // 템플릿 필드 타입 정의
@@ -79,6 +129,13 @@ interface TemplateField {
   required: boolean;
   x: number; // coordinateX -> x로 변경
   y: number; // coordinateY -> y로 변경
+  type?: 'field' | 'table'; // 필드 타입 추가
+  tableData?: {
+    rows: number;
+    cols: number;
+    cells: string[][]; // 각 셀의 내용
+    columnWidths?: number[]; // 컬럼 너비 비율 추가
+  };
 }
 
 const DocumentEditor: React.FC = () => {
@@ -91,36 +148,6 @@ const DocumentEditor: React.FC = () => {
   
   // CoordinateFields 상태를 별도로 관리 (리렌더링 최적화)
   const [coordinateFields, setCoordinateFields] = useState<CoordinateField[]>([]);
-  const [tableDataMap, setTableDataMap] = useState<Record<string, string>>({});
-  const [tableFontSizeMap, setTableFontSizeMap] = useState<Record<string, number>>({});
-
-  // 저장된 표 데이터를 tableDataMap에 로드
-  useEffect(() => {
-    if (currentDocument?.data?.["table data"]) {
-      const savedTableData = currentDocument.data["table data"];
-      const newTableDataMap: Record<string, string> = {};
-      const newTableFontSizeMap: Record<string, number> = {};
-      
-      savedTableData.forEach((item: any) => {
-        if (item.tableId && item.position && item.value) {
-          // position은 "행-열" 형식 (예: "2-2")
-          const [row, col] = item.position.split('-');
-          const key = `${item.tableId}:${row}:${col}`;
-          newTableDataMap[key] = item.value;
-          newTableFontSizeMap[key] = item["font-size"] ? parseInt(item["font-size"]) : 10;
-        }
-      });
-      
-      console.log('📋 저장된 표 데이터 로드:', {
-        savedTableData,
-        newTableDataMap,
-        newTableFontSizeMap
-      });
-      
-      setTableDataMap(newTableDataMap);
-      setTableFontSizeMap(newTableFontSizeMap);
-    }
-  }, [currentDocument?.data]);
   
   // 저장 상태 관리
   const [isSaving, setIsSaving] = useState(false);
@@ -128,6 +155,14 @@ const DocumentEditor: React.FC = () => {
   
   // 미리보기 모달 상태
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // 테이블 셀 편집 상태
+  const [isTableCellEditOpen, setIsTableCellEditOpen] = useState(false);
+  const [editingCell, setEditingCell] = useState<{
+    fieldKey: string;
+    row: number;
+    col: number;
+  } | null>(null);
 
   // 저장 관련 refs
   const pendingSaves = useRef<Map<number, string>>(new Map());
@@ -180,6 +215,15 @@ const DocumentEditor: React.FC = () => {
           };
           debugTemplateField(fieldForDebug, 'editing');
 
+          console.log(`🎯 [편집단계] 필드 변환 상세 [${field.id}]:`, {
+            fieldId: field.id,
+            label: field.label,
+            fieldType: field.fieldType,
+            hasTableData: !!field.tableData,
+            tableDataDetail: field.tableData,
+            originalField: field
+          });
+
           return {
             id: field.id.toString(),
             label: field.label,
@@ -187,21 +231,30 @@ const DocumentEditor: React.FC = () => {
             y: pixelCoords.y,
             width: pixelCoords.width,
             height: pixelCoords.height,
-            type: field.type || (field.fieldType?.toLowerCase() === 'date' ? 'date' : 'text') as 'text' | 'date' | 'table',
-            value: '', // 빈 값으로 시작
+            type: (field.fieldType?.toLowerCase() === 'date' ? 'date' : 'text') as 'text' | 'date',
+            value: field.fieldType === 'table' && field.tableData 
+              ? JSON.stringify({
+                  rows: field.tableData.rows,
+                  cols: field.tableData.cols,
+                  cells: Array(field.tableData.rows).fill(null).map(() => 
+                    Array(field.tableData!.cols).fill('')
+                  )
+                }) 
+              : '', // 테이블인 경우 기본 빈 셀 배열 생성, 아니면 빈 값
             required: field.required,
-            // 표 필드 속성들 추가
-            ...(field.type === 'table' ? {
-              tableId: field.tableId,
-              rows: field.rows,
-              columnsCount: field.columnsCount,
-              columns: field.columns
-            } : {})
+            // 테이블 정보 추가
+            ...(field.fieldType === 'table' && field.tableData && {
+              tableData: field.tableData
+            })
           };
         });
       
-      console.log('🎯 [편집단계] 최종 coordinateFields 설정:', initialFields);
-      console.log('🎯 [편집단계] 표 필드 확인:', initialFields.filter(f => f.type === 'table'));
+      console.log('🎯 [편집단계] 최종 coordinateFields 설정:', {
+        fieldsCount: initialFields.length,
+        tableFieldsCount: initialFields.filter(f => f.tableData).length,
+        allFields: initialFields,
+        tableFields: initialFields.filter(f => f.tableData)
+      });
       setCoordinateFields(initialFields);
     }
   }, [templateFields, id]);
@@ -211,8 +264,7 @@ const DocumentEditor: React.FC = () => {
     console.log('🔄 CoordinateFields 초기화:', {
       documentId: id,
       currentDocumentFields: currentDocument?.data?.coordinateFields?.length || 0,
-      currentDocumentId: currentDocument?.id,
-      tableInitFields: currentDocument?.data?.["table init Fields"]?.length || 0
+      currentDocumentId: currentDocument?.id
     });
     
     // 문서 ID가 다르면 필드 구조는 유지하되 값만 초기화
@@ -231,23 +283,16 @@ const DocumentEditor: React.FC = () => {
         documentId: id,
         fieldsCount: currentDocument.data.coordinateFields.length
       });
-      const processedFields = currentDocument.data.coordinateFields.map((field: any) => ({
+      const processedFields = currentDocument.data.coordinateFields.map(field => ({
         id: field.id.toString(),
         label: field.label || `필드 ${field.id}`,
         x: field.x,
         y: field.y,
         width: field.width || 100,
         height: field.height || 20,
-        type: (field.type || 'text') as CoordinateField['type'],
+        type: 'text' as 'text' | 'date',
         value: field.value || '', // 이 문서에 저장된 값 사용
-        required: field.required || false,
-        // 표 필드 속성들 추가
-        ...(field.type === 'table' ? {
-          tableId: field.tableId,
-          rows: field.rows,
-          columnsCount: field.columnsCount,
-          columns: field.columns
-        } : {})
+        required: field.required || false
       }));
       setCoordinateFields(processedFields);
     }
@@ -262,58 +307,6 @@ const DocumentEditor: React.FC = () => {
       }
     }, 1000),
     [updateDocumentSilently]
-  );
-
-  // 표 데이터 저장 함수
-  const saveTableData = useCallback(async (tableId: string, row: number, col: number, value: string, fontSize?: number) => {
-    if (!id || !currentDocument) return;
-
-    try {
-      // 현재 문서 데이터 가져오기
-      const currentData = currentDocument.data || {};
-      const existingTableData = currentData["table data"] || [];
-      
-      // 기존 데이터에서 해당 위치의 데이터 제거 (position 형식: "행-열")
-      const position = `${row}-${col}`;
-      const filteredTableData = existingTableData.filter(
-        (item: any) => !(item.tableId === tableId && item.position === position)
-      );
-      
-      // 값이 비어있지 않으면 새 데이터 추가
-      const updatedTableData = [...filteredTableData];
-      if (value.trim()) {
-        updatedTableData.push({
-          tableId,
-          value: value.trim(),
-          position: position, // "행-열" 형식
-          "font-size": fontSize || 10
-        });
-      }
-
-      // 문서 데이터 업데이트
-      const newData = {
-        ...currentData,
-        "table data": updatedTableData
-      };
-
-      console.log('💾 표 데이터 저장:', {
-        tableId,
-        row,
-        col,
-        value,
-        updatedTableData
-      });
-
-      await debouncedUpdateDocument(parseInt(id), { data: newData });
-    } catch (error) {
-      console.error('표 데이터 저장 실패:', error);
-    }
-  }, [id, currentDocument, debouncedUpdateDocument]);
-
-  // 디바운스된 표 데이터 저장 함수
-  const debouncedSaveTableData = useMemo(
-    () => createDebounce(saveTableData, 800),
-    [saveTableData]
   );
 
   // 문서 필드 값 저장
@@ -358,69 +351,36 @@ const DocumentEditor: React.FC = () => {
     
     setIsSaving(true);
     try {
-      // 대기 중인 모든 필드 값 즉시 저장
-      const promises: Promise<any>[] = [];
+      // coordinateFields 저장 방식으로 통일
+      const updatedData = {
+        coordinateFields: coordinateFields.map(field => ({
+          id: field.id,
+          label: field.label,
+          x: field.x,
+          y: field.y,
+          width: field.width,
+          height: field.height,
+          type: field.type,
+          value: field.value,
+          required: field.required,
+          // 테이블 정보도 보존
+          ...(field.tableData && { tableData: field.tableData })
+        }))
+      };
       
-      // 템플릿 필드 값 저장
-      if (pendingSaves.current.size > 0) {
-        Array.from(pendingSaves.current.entries()).forEach(([templateFieldId, value]) => {
-          promises.push(saveDocumentFieldValue(templateFieldId, value));
-        });
-        pendingSaves.current.clear();
-      }
+      console.log('💾 수동 저장 - coordinateFields:', {
+        documentId: id,
+        fieldsCount: coordinateFields.length,
+        tableFieldsCount: coordinateFields.filter(f => f.tableData).length,
+        updatedData
+      });
       
-      // 좌표/표 필드 저장 (템플릿 필드가 없는 경우)
-      if (Array.isArray(templateFields) === false || templateFields.length === 0) {
-        // 필요한 데이터만 포함하여 저장
-        const tableInitFields = coordinateFields
-          .filter(f => f.type === 'table')
-          .map(f => ({
-            type: 'table',
-            tableId: f.tableId || f.id,
-            x: Math.round(f.x),
-            y: Math.round(f.y),
-            height: Math.round(f.height),
-            width: Math.round(f.width),
-            columns: (f.columns || []).map(c => ({
-              title: c.title,
-              width: String(Math.round(c.width)),
-              width_ratio: c.width_ratio || '1',
-              location_column: c.location_column
-            }))
-          }));
-
-        const tableDataArray = Object.entries(tableDataMap).map(([key, value]) => {
-          const [tableId, r, c] = key.split(':');
-          return { value, location_column: c, location_row: r, tableId };
-        });
-
-        const updatedData: any = {
-          coordinateFields: coordinateFields.map(field => ({
-            id: field.id,
-            label: field.label,
-            x: field.x,
-            y: field.y,
-            width: field.width,
-            height: field.height,
-            type: field.type,
-            value: field.value,
-            required: field.required,
-            ...(field.type === 'table' ? { tableId: field.tableId || field.id, rows: field.rows, columnsCount: field.columnsCount, columns: field.columns } : {})
-          }))
-        };
-
-        if (tableInitFields.length > 0) updatedData['table init Fields'] = tableInitFields;
-        if (tableDataArray.length > 0) updatedData['table data'] = tableDataArray;
-
-        promises.push(updateDocumentSilently(parseInt(id), { data: updatedData }));
-      }
-      
-      // 모든 저장 작업 완료 대기
-      await Promise.all(promises);
+      await updateDocumentSilently(parseInt(id), { data: updatedData });
       
       // 모든 타이머 클리어
       saveTimeouts.current.forEach(timeout => clearTimeout(timeout));
       saveTimeouts.current.clear();
+      pendingSaves.current.clear();
       
       setLastSaved(new Date());
     } catch (error) {
@@ -470,61 +430,120 @@ const DocumentEditor: React.FC = () => {
       return updated;
     });
 
-    // 템플릿 필드가 있는 경우
-    if (Array.isArray(templateFields) && templateFields.length > 0) {
-      const templateFieldId = parseInt(fieldId);
-      
-      console.log('🔧 템플릿 필드 모드:', {
-        documentId: id,
-        templateFieldId,
-        value
-      });
-      
-      // 서버 저장은 디바운스 적용
-      pendingSaves.current.set(templateFieldId, value);
-      const existingTimeout = saveTimeouts.current.get(templateFieldId);
-      if (existingTimeout) {
-        clearTimeout(existingTimeout);
-      }
-      
-      const newTimeout = setTimeout(() => {
-        const valueToSave = pendingSaves.current.get(templateFieldId);
-        if (valueToSave !== undefined) {
-          console.log('💾 디바운스된 템플릿 필드 저장:', {
-            documentId: id,
-            templateFieldId,
-            valueToSave
-          });
-          stableHandlersRef.current.saveDocumentFieldValue(templateFieldId, valueToSave);
-          pendingSaves.current.delete(templateFieldId);
-          saveTimeouts.current.delete(templateFieldId);
-        }
-      }, 1000);
-      
-      saveTimeouts.current.set(templateFieldId, newTimeout);
-      return;
-    }
-
-    console.log('🔧 좌표 필드 모드 (템플릿 필드 없음):', {
+    // 템플릿 필드가 있는 경우도 coordinateFields 방식으로 저장
+    console.log('🔧 좌표 필드 모드로 저장:', {
       documentId: id,
       fieldId,
-      value
+      value,
+      hasTemplateFields: Array.isArray(templateFields) && templateFields.length > 0
     });
 
-    // 템플릿 필드가 없는 경우 - 전체 업데이트 (디바운스 적용)
+    // coordinateFields 전체 업데이트 방식으로 통일
     const updatedFields = coordinateFields.map(field => 
       field.id === fieldId 
         ? { ...field, value } 
         : field
     );
     
-    // 필요한 데이터만 포함하여 저장 (빈 값 제외)
+    // 필요한 데이터만 포함하여 저장
     const updatedData = {
       coordinateFields: updatedFields
-    } as any;
+    };
+    
+    console.log('💾 coordinateFields 업데이트 저장:', {
+      documentId: id,
+      fieldId,
+      value,
+      updatedData
+    });
     
     stableHandlersRef.current.debouncedUpdateDocument(parseInt(id!), { data: updatedData });
   }, [id, currentDocument, templateFields, coordinateFields]);
+
+  // 테이블 셀 편집 핸들러
+  const handleTableCellClick = useCallback((fieldKey: string, row: number, col: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    
+    setEditingCell({ fieldKey, row, col });
+    setIsTableCellEditOpen(true);
+  }, []);
+
+  const handleTableCellSave = useCallback((text: string) => {
+    if (!editingCell) return;
+    
+    // coordinateFields에서 해당 테이블 필드 찾기
+    setCoordinateFields(prev => prev.map(field => {
+      if (field.id === editingCell.fieldKey) {
+        // 기존 값을 JSON으로 파싱하여 테이블 데이터 추출
+        try {
+          const currentValue = field.value || '{}';
+          const tableData = JSON.parse(currentValue);
+          
+          // cells 배열이 없으면 초기화
+          if (!tableData.cells) {
+            tableData.cells = [];
+          }
+          
+          // columnWidths가 없으면 기본값 설정
+          if (!tableData.columnWidths && tableData.cols) {
+            tableData.columnWidths = Array(tableData.cols).fill(1 / tableData.cols);
+          }
+          
+          // 해당 행이 없으면 생성
+          while (tableData.cells.length <= editingCell.row) {
+            tableData.cells.push([]);
+          }
+          
+          // 해당 열이 없으면 생성
+          while (tableData.cells[editingCell.row].length <= editingCell.col) {
+            tableData.cells[editingCell.row].push('');
+          }
+          
+          // 셀 값 업데이트
+          tableData.cells[editingCell.row][editingCell.col] = text;
+          
+          // JSON 문자열로 변환하여 저장
+          const updatedValue = JSON.stringify(tableData);
+          
+          console.log('🔧 테이블 셀 업데이트:', {
+            fieldKey: editingCell.fieldKey,
+            row: editingCell.row,
+            col: editingCell.col,
+            text,
+            updatedValue
+          });
+          
+          // 서버에도 저장 - coordinateFields 전체 업데이트
+          const updatedFields = prev.map(f => 
+            f.id === editingCell.fieldKey 
+              ? { ...f, value: updatedValue }
+              : f
+          );
+          
+          // 문서 데이터 저장
+          const updatedData = {
+            coordinateFields: updatedFields
+          };
+          
+          console.log('💾 테이블 데이터 서버 저장:', {
+            documentId: id,
+            fieldKey: editingCell.fieldKey,
+            updatedData
+          });
+          
+          // 디바운스된 업데이트로 서버에 저장
+          stableHandlersRef.current.debouncedUpdateDocument(parseInt(id!), { data: updatedData });
+          
+          return { ...field, value: updatedValue };
+        } catch (error) {
+          console.error('테이블 데이터 파싱 실패:', error);
+          return field;
+        }
+      }
+      return field;
+    }));
+  }, [editingCell, handleCoordinateFieldChange]);
 
   // 템플릿 필드 로드
   const loadTemplateFields = useCallback(async () => {
@@ -540,36 +559,69 @@ const DocumentEditor: React.FC = () => {
         templateId: currentDocument.templateId
       });
       
-      // 템플릿 필드 로드 전에 이전 값들 초기화
+      // 템플릿 정보를 가져와서 coordinateFields에서 테이블 데이터 추출
+      const templateResponse = await axios.get(`/api/templates/${currentDocument.templateId}`);
+      const template = templateResponse.data;
       
-      const response = await axios.get(`/api/templates/${currentDocument.templateId}/fields`);
-      
-      console.log('🔧 [편집단계] 템플릿 필드 API 응답:', {
-        documentId: currentDocument.id,
-        templateId: currentDocument.templateId,
-        responseData: response.data,
-        isArray: Array.isArray(response.data),
-        fieldsCount: Array.isArray(response.data) ? response.data.length : 0
+      console.log('🔧 [편집단계] 템플릿 정보 로드:', {
+        template,
+        hasCoordinateFields: !!template.coordinateFields,
+        coordinateFieldsType: typeof template.coordinateFields,
+        coordinateFieldsValue: template.coordinateFields
       });
+
+      let parsedFields: any[] = [];
       
-      if (Array.isArray(response.data)) {
-        console.log('🔧 [편집단계] 템플릿 필드 로드 성공, 각 필드 상세:', 
-          response.data.map(field => ({
-            id: field.id,
-            label: field.label,
-            fieldKey: field.fieldKey,
-            x: field.x,
-            y: field.y,
-            width: field.width,
-            height: field.height,
-            fieldType: field.fieldType
-          }))
-        );
-        setTemplateFields(response.data);
-      } else {
-        console.warn('템플릿 필드 응답이 배열이 아닙니다:', response.data);
-        setTemplateFields([]);
+      // coordinateFields에서 필드 정보 파싱
+      if (template.coordinateFields) {
+        try {
+          parsedFields = typeof template.coordinateFields === 'string' 
+            ? JSON.parse(template.coordinateFields)
+            : template.coordinateFields;
+            
+          console.log('🔧 [편집단계] 파싱된 coordinate fields 상세:', {
+            parsedFields,
+            isArray: Array.isArray(parsedFields),
+            fieldsCount: Array.isArray(parsedFields) ? parsedFields.length : 0,
+            tableFields: parsedFields.filter(f => f.type === 'table')
+          });
+        } catch (error) {
+          console.error('coordinateFields 파싱 실패:', error);
+        }
       }
+      
+      // coordinateFields를 템플릿 필드 형태로 변환
+      const convertedFields = parsedFields.map((field, index) => {
+        const converted = {
+          id: parseInt(field.id?.replace(/\D/g, '') || index.toString()), // ID에서 숫자만 추출
+          fieldKey: field.id,
+          label: field.label,
+          fieldType: field.type === 'table' ? 'table' : 'text',
+          x: field.x,
+          y: field.y,
+          width: field.width,
+          height: field.height,
+          required: field.required || false,
+          type: field.type || 'field',
+          tableData: field.tableData
+        };
+        
+        console.log(`🔧 [편집단계] 필드 변환 [${index}]:`, {
+          original: field,
+          converted,
+          hasTableData: !!field.tableData,
+          tableDataDetail: field.tableData
+        });
+        
+        return converted;
+      });
+
+      console.log('🔧 [편집단계] 최종 변환된 템플릿 필드:', {
+        convertedFields,
+        tableFieldsCount: convertedFields.filter(f => f.tableData).length
+      });
+      setTemplateFields(convertedFields);
+      
     } catch (error) {
       console.error('템플릿 필드 로드 실패:', {
         documentId: currentDocument.id,
@@ -578,7 +630,7 @@ const DocumentEditor: React.FC = () => {
       });
       setTemplateFields([]);
     }
-  }, [currentDocument?.templateId, currentDocument?.id]); // currentDocument.id도 의존성에 추가
+  }, [currentDocument?.templateId, currentDocument?.id]);
 
   // 문서 필드 값 로드
   const loadDocumentFieldValues = useCallback(async () => {
@@ -594,30 +646,57 @@ const DocumentEditor: React.FC = () => {
       console.log('📥 필드 값 로드 시작:', {
         documentId: id,
         templateFieldsCount: templateFields.length,
-        templateFieldIds: templateFields.map(tf => tf.id)
+        templateFieldIds: templateFields.map(tf => tf.id),
+        currentDocumentData: currentDocument?.data
       });
       
-      const response = await axios.get(`/api/documents/${id}/field-values`);
-      const fieldValues = response.data;
-      console.log('📥 서버에서 받은 필드 값:', {
-        documentId: id,
-        fieldValues,
-        fieldValuesType: Array.isArray(fieldValues) ? 'array' : typeof fieldValues,
-        fieldValuesLength: Array.isArray(fieldValues) ? fieldValues.length : 'N/A'
-      });
+      // 문서 데이터에서 필드 값 추출 (coordinateFields 사용)
+      let fieldValues: any[] = [];
+      
+      if (currentDocument?.data?.coordinateFields) {
+        fieldValues = currentDocument.data.coordinateFields;
+        console.log('📥 문서의 coordinateFields에서 필드 값 로드:', fieldValues);
+      } else {
+        console.log('📥 문서에 저장된 coordinateFields가 없음, 빈 값으로 초기화');
+      }
       
       // coordinateFields 업데이트 - 템플릿 필드 정보에 저장된 값 추가
       const updated = templateFields.map(templateField => {
-        const fieldValue = Array.isArray(fieldValues) ? 
-          fieldValues.find((fv: any) => fv.templateFieldId === templateField.id) : 
-          null;
-        const value = fieldValue ? (fieldValue.value || '') : '';
+        // coordinateFields에서 해당 필드 찾기 (ID 또는 label 기준)
+        const savedField = Array.isArray(fieldValues) ? 
+          fieldValues.find((fv: any) => 
+            fv.id === templateField.id.toString() || 
+            fv.label === templateField.label
+          ) : null;
+        
+        // 테이블 필드인 경우 기본값 처리
+        let value = '';
+        if (templateField.fieldType === 'table' && templateField.tableData) {
+          if (savedField && savedField.value) {
+            value = savedField.value;
+          } else {
+            // 테이블 필드의 기본값: 빈 셀 배열 + 컬럼 너비
+            value = JSON.stringify({
+              rows: templateField.tableData.rows,
+              cols: templateField.tableData.cols,
+              cells: Array(templateField.tableData.rows).fill(null).map(() => 
+                Array(templateField.tableData!.cols).fill('')
+              ),
+              columnWidths: templateField.tableData.columnWidths || Array(templateField.tableData.cols).fill(1 / templateField.tableData.cols)
+            });
+          }
+        } else {
+          value = savedField ? (savedField.value || '') : '';
+        }
         
         console.log('📥 필드 값 매핑:', {
           templateFieldId: templateField.id,
           templateFieldLabel: templateField.label,
-          foundFieldValue: !!fieldValue,
-          value: value
+          templateFieldType: templateField.fieldType,
+          foundSavedField: !!savedField,
+          value: value,
+          hasTableData: !!templateField.tableData,
+          tableData: templateField.tableData
         });
         
         // 픽셀 좌표를 그대로 사용 (변환 없음)
@@ -635,9 +714,13 @@ const DocumentEditor: React.FC = () => {
           y: pixelCoords.y,
           width: pixelCoords.width,
           height: pixelCoords.height,
-          type: 'text' as 'text' | 'date',
+          type: (templateField.fieldType?.toLowerCase() === 'date' ? 'date' : 'text') as 'text' | 'date',
           value: value,
-          required: templateField.required || false
+          required: templateField.required || false,
+          // 테이블 정보 보존
+          ...(templateField.fieldType === 'table' && templateField.tableData && {
+            tableData: templateField.tableData
+          })
         };
       });
       
@@ -660,6 +743,19 @@ const DocumentEditor: React.FC = () => {
           height: templateField.height || 30
         };
         
+        // 테이블 필드인 경우 기본값 설정
+        let defaultValue = '';
+        if (templateField.fieldType === 'table' && templateField.tableData) {
+          defaultValue = JSON.stringify({
+            rows: templateField.tableData.rows,
+            cols: templateField.tableData.cols,
+            cells: Array(templateField.tableData.rows).fill(null).map(() => 
+              Array(templateField.tableData!.cols).fill('')
+            ),
+            columnWidths: templateField.tableData.columnWidths || Array(templateField.tableData.cols).fill(1 / templateField.tableData.cols)
+          });
+        }
+        
         return {
           id: templateField.id.toString(),
           label: templateField.label || `필드 ${templateField.id}`,
@@ -667,9 +763,13 @@ const DocumentEditor: React.FC = () => {
           y: pixelCoords.y,
           width: pixelCoords.width,
           height: pixelCoords.height,
-          type: 'text' as 'text' | 'date',
-          value: '',
-          required: templateField.required || false
+          type: (templateField.fieldType?.toLowerCase() === 'date' ? 'date' : 'text') as 'text' | 'date',
+          value: defaultValue,
+          required: templateField.required || false,
+          // 테이블 정보 보존
+          ...(templateField.fieldType === 'table' && templateField.tableData && {
+            tableData: templateField.tableData
+          })
         };
       }));
     }
@@ -802,7 +902,10 @@ const DocumentEditor: React.FC = () => {
                 y: field.y,
                 width: field.width,
                 height: field.height,
-                value: field.value
+                value: field.value,
+                hasTableData: !!field.tableData,
+                tableData: field.tableData,
+                fieldType: field.type
               });
               
               // 퍼센트 기반 위치 계산
@@ -817,164 +920,48 @@ const DocumentEditor: React.FC = () => {
               const widthPercent = field.width;
               const heightPercent = field.height;
 
-              if (field.type === 'table') {
-                const tableId = field.tableId || field.id;
-                const rows = field.rows || 3;
-                const cols = field.columnsCount || (field.columns?.length || 1);
-                
-                // 컬럼 정보가 없는 경우 기본 컬럼 생성
-                let columns = field.columns || [];
-                if (columns.length === 0) {
-                  const defaultColumnWidth = Math.floor(widthPercent / cols);
-                  columns = Array.from({ length: cols }, (_, i) => ({
-                    title: `컬럼${i + 1}`,
-                    width: defaultColumnWidth,
-                    width_ratio: String(defaultColumnWidth),
-                    location_column: String(i + 1)
-                  }));
-                  console.log('⚠️ 기본 컬럼 생성:', columns);
+              // 테이블 필드인지 확인
+              let isTableField = false;
+              let tableInfo = null;
+              
+              // 1. tableData 속성으로 확인
+              if (field.tableData) {
+                isTableField = true;
+                tableInfo = field.tableData;
+              } else {
+                // 2. value를 파싱해서 테이블 데이터 확인
+                try {
+                  if (field.value && typeof field.value === 'string') {
+                    const parsedValue = JSON.parse(field.value);
+                    if (parsedValue.rows && parsedValue.cols && parsedValue.cells) {
+                      isTableField = true;
+                      tableInfo = {
+                        rows: parsedValue.rows,
+                        cols: parsedValue.cols,
+                        columnWidths: parsedValue.columnWidths // 컬럼 너비 정보도 포함
+                      };
+                    }
+                  }
+                } catch (e) {
+                  // JSON 파싱 실패 시 일반 필드로 처리
                 }
-                
-                const headerHeight = 30; // 헤더 높이 고정
-                // 컬럼에 height 정보가 있으면 사용, 없으면 균등 분할
-                const hasColumnHeights = columns.some(col => col.height && col.height > 0);
-                const cellHeight = hasColumnHeights 
-                  ? (columns[0]?.height || 30) 
-                  : Math.max(25, (heightPercent - headerHeight) / Math.max(1, rows));
-                
-                // 실제 표 높이 계산 (헤더 + 모든 행)
-                const actualTableHeight = headerHeight + rows * cellHeight;
-                
-                console.log('🔍 표 필드 렌더링 디버그:', {
-                  fieldId: field.id,
-                  tableId,
-                  rows,
-                  cols,
-                  columns,
-                  tableDataMapKeys: Object.keys(tableDataMap),
-                  tableDataMapValues: tableDataMap
-                });
-                
-                return (
-                  <div
-                    key={field.id}
-                    className="absolute border-2 border-dashed border-blue-400 bg-blue-50 bg-opacity-40"
-                    style={{
-                      left: `${leftPercent}px`,
-                      top: `${topPercent}px`,
-                      width: `${widthPercent}px`,
-                      height: `${actualTableHeight}px`, // 동적 높이 사용
-                      zIndex: 10
-                    }}
-                    title={`표 영역 (${tableId})`}
-                  >
-                    {/* 컬럼 헤더 */}
-                    <div className="absolute top-0 left-0 w-full h-6 bg-blue-100 border-b border-blue-300 flex">
-                      {columns.map((col, colIndex) => {
-                        // 컬럼 너비 계산 (최소 30px 보장)
-                        const colWidth = Math.max(30, col.width || Math.floor(widthPercent / cols));
-                        console.log('🔍 컬럼 헤더 렌더링:', {
-                          colIndex,
-                          title: col.title,
-                          originalWidth: col.width,
-                          calculatedWidth: colWidth
-                        });
-                        
-                        return (
-                          <div
-                            key={colIndex}
-                            className="flex items-center justify-center text-xs text-blue-800 border-r border-blue-300 last:border-r-0"
-                            style={{ width: colWidth }}
-                          >
-                            <span className="truncate px-1">{col.title}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    
-                    {/* 표 데이터 셀 */}
-                    {Array.from({ length: rows }).map((_, ri) => (
-                      <div key={`row-${ri}`} className="absolute left-0 flex" style={{ 
-                        top: headerHeight + ri * cellHeight, 
-                        height: cellHeight 
-                      }}>
-                        {columns.map((col, ci) => {
-                          const rowIndex = ri + 1; // 1부터 시작
-                          const colIndex = ci + 1; // 1부터 시작
-                          const colWidth = Math.max(30, col.width || Math.floor(widthPercent / cols));
-                          
-                          // 실시간 입력 데이터 또는 저장된 데이터에서 셀 값 찾기
-                          const inputKey = `${tableId}:${rowIndex}:${colIndex}`;
-                          const inputValue = tableDataMap[inputKey];
-                          const customFontSize = tableFontSizeMap[inputKey];
-                          
-                          // 우선순위: 실시간 입력 > 저장된 데이터
-                          let cellValue = inputValue;
-                          if (!cellValue) {
-                            const savedTableData = currentDocument?.data?.["table data"] || [];
-                            const cellData = savedTableData.find((item: any) => 
-                              item.tableId === tableId && 
-                              item.position === `${rowIndex}-${colIndex}`
-                            );
-                            cellValue = cellData?.value || '';
-                          }
-                          
-                          console.log('🔍 셀 데이터 디버그:', {
-                            tableId,
-                            rowIndex,
-                            colIndex,
-                            inputKey,
-                            inputValue,
-                            cellValue,
-                            hasInputValue: !!inputValue,
-                            hasSavedValue: !!cellValue
-                          });
-                          
-                          return (
-                            <div
-                              key={`cell-${ci}`}
-                              className="flex items-center justify-center border-r border-blue-200 last:border-r-0 px-1 py-1"
-                              style={{ 
-                                width: colWidth,
-                                height: cellHeight,
-                                backgroundColor: cellValue ? 'rgba(34, 197, 94, 0.1)' : 'transparent',
-                                overflow: 'hidden'
-                              }}
-                            >
-                              {cellValue && (
-                                <div 
-                                  className="w-full h-full flex items-center justify-center text-center leading-tight"
-                                  style={{
-                                    fontSize: customFontSize ? `${customFontSize}px` : calculateOptimalFontSize(cellValue, colWidth - 8, cellHeight - 4),
-                                    wordBreak: 'break-all',
-                                    overflowWrap: 'break-word',
-                                    hyphens: 'auto'
-                                  }}
-                                >
-                                  {cellValue}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    
-                    {/* 행 구분선 */}
-                    {Array.from({ length: rows - 1 }).map((_, ri) => (
-                      <div
-                        key={`line-${ri}`}
-                        className="absolute left-0 w-full border-t border-blue-200"
-                        style={{ top: headerHeight + (ri + 1) * cellHeight }}
-                      />
-                    ))}
-                  </div>
-                );
               }
+              
+              console.log('🔍 테이블 필드 확인:', {
+                fieldId: field.id,
+                fieldLabel: field.label,
+                isTableField,
+                tableInfo,
+                hasTableDataProperty: !!field.tableData,
+                value: field.value
+              });
+
               return (
                 <div
                   key={field.id}
-                  className="absolute border-2 bg-blue-100 bg-opacity-30 hover:bg-opacity-50 transition-colors border-blue-500 flex flex-col justify-center cursor-pointer"
+                  className={`absolute border-2 bg-opacity-30 hover:bg-opacity-50 transition-colors flex flex-col justify-center cursor-pointer ${
+                    isTableField ? 'bg-purple-100 border-purple-500' : 'bg-blue-100 border-blue-500'
+                  }`}
                   style={{
                     left: `${leftPercent}px`,
                     top: `${topPercent}px`,
@@ -985,23 +972,93 @@ const DocumentEditor: React.FC = () => {
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    // 필드를 찾아서 편집 상태로 설정
-                    const templateField = templateFields.find(tf => tf.id.toString() === field.id);
-                    if (templateField) {
-                      // 우측 패널에서 해당 필드로 포커스 이동
-                      const input = document.querySelector(`input[data-field-id="${field.id}"]`) as HTMLInputElement;
-                      if (input) {
-                        input.focus();
-                        input.select();
+                    // 테이블이 아닌 일반 필드인 경우
+                    if (!isTableField) {
+                      // 필드를 찾아서 편집 상태로 설정
+                      const templateField = templateFields.find(tf => tf.id.toString() === field.id);
+                      if (templateField) {
+                        // 우측 패널에서 해당 필드로 포커스 이동
+                        const input = document.querySelector(`input[data-field-id="${field.id}"]`) as HTMLInputElement;
+                        if (input) {
+                          input.focus();
+                          input.select();
+                        }
                       }
                     }
                   }}
                 >
-                  {field.value ? (
+                  {isTableField && tableInfo ? (
+                    // 테이블 렌더링
+                    <div className="w-full h-full p-1">
+                      <div className="text-xs font-medium mb-1 text-purple-700 truncate">
+                        {field.label} ({tableInfo.rows}×{tableInfo.cols})
+                        {field.required && <span className="text-red-500">*</span>}
+                      </div>
+                      <div 
+                        className="grid gap-px bg-purple-300" 
+                        style={{
+                          gridTemplateColumns: tableInfo.columnWidths 
+                            ? tableInfo.columnWidths.map((width: number) => `${width * 100}%`).join(' ')
+                            : `repeat(${tableInfo.cols}, 1fr)`,
+                          height: 'calc(100% - 20px)'
+                        }}
+                      >
+                        {Array(tableInfo.rows).fill(null).map((_, rowIndex) =>
+                          Array(tableInfo.cols).fill(null).map((_, colIndex) => {
+                            let cellText = '';
+                            try {
+                              // 테이블 값 파싱 개선
+                              let tableValue: any = {};
+                              if (field.value) {
+                                if (typeof field.value === 'string') {
+                                  tableValue = JSON.parse(field.value);
+                                } else {
+                                  tableValue = field.value;
+                                }
+                              }
+                              
+                              cellText = tableValue.cells?.[rowIndex]?.[colIndex] || '';
+                              
+                              console.log(`🔍 테이블 셀 값 확인 [${rowIndex}][${colIndex}]:`, {
+                                fieldId: field.id,
+                                fieldLabel: field.label,
+                                rawValue: field.value,
+                                parsedTableValue: tableValue,
+                                cellText: cellText
+                              });
+                            } catch (error) {
+                              console.error(`테이블 값 파싱 실패 [${rowIndex}][${colIndex}]:`, {
+                                fieldId: field.id,
+                                rawValue: field.value,
+                                error
+                              });
+                              cellText = '';
+                            }
+                            
+                            return (
+                              <div 
+                                key={`${rowIndex}-${colIndex}`}
+                                className="bg-white bg-opacity-70 border border-purple-200 hover:bg-opacity-90 cursor-pointer flex items-center justify-center text-xs p-1 transition-colors"
+                                style={{ minHeight: '20px' }}
+                                onClick={(e) => handleTableCellClick(field.id, rowIndex, colIndex, e)}
+                                title={cellText || '클릭하여 편집'}
+                              >
+                                <span className="text-center text-purple-700 font-medium truncate leading-tight">
+                                  {cellText}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ) : field.value ? (
+                    // 일반 필드 - 값이 있는 경우
                     <div className="text-xs text-gray-900 p-1 truncate font-medium bg-white bg-opacity-80 rounded text-center">
                       {field.value}
                     </div>
                   ) : (
+                    // 일반 필드 - 값이 없는 경우
                     <div className="text-xs text-blue-700 font-medium p-1 truncate text-center">
                       {field.label}
                       {field.required && <span className="text-red-500">*</span>}
@@ -1014,19 +1071,7 @@ const DocumentEditor: React.FC = () => {
         </div>
       </div>
     );
-  }, [currentDocument?.template?.pdfImagePath, coordinateFields, templateFields, tableDataMap, tableFontSizeMap]);
-
-  // 디버깅: 전체 상태 출력
-  useEffect(() => {
-    console.log('🔍 전체 상태 디버깅:', {
-      documentId: id,
-      coordinateFieldsCount: coordinateFields.length,
-      tableFields: coordinateFields.filter(f => f.type === 'table'),
-      tableDataMapSize: Object.keys(tableDataMap).length,
-      tableDataMap: tableDataMap,
-      savedTableData: currentDocument?.data?.["table data"] || []
-    });
-  }, [coordinateFields, tableDataMap, currentDocument?.data, id]);
+  }, [currentDocument?.template?.pdfImagePath, coordinateFields, templateFields]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">문서를 불러오는 중...</div>;
@@ -1131,7 +1176,7 @@ const DocumentEditor: React.FC = () => {
           </div>
           
           <div className="p-4 space-y-4">
-            {coordinateFields.filter(f=>f.type!== 'table').map((field) => (
+            {coordinateFields.map((field) => (
               <div key={field.id} className="border rounded-lg p-3">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   {field.label}
@@ -1157,106 +1202,6 @@ const DocumentEditor: React.FC = () => {
                 )}
               </div>
             ))}
-
-            {/* 표 데이터 입력 */}
-            {coordinateFields.filter(f=>f.type==='table').map((tbl) => {
-              const rows = tbl.rows || 3;
-              const cols = tbl.columnsCount || (tbl.columns?.length || 1);
-              const headers = (tbl.columns || []).map(c=>c.title);
-              const tableKey = tbl.tableId || tbl.id;
-              
-              console.log('🔍 우측 패널 표 렌더링 디버그:', {
-                tableId: tableKey,
-                rows,
-                cols,
-                headers,
-                columns: tbl.columns,
-                fieldType: tbl.type
-              });
-              return (
-                <div key={`tbl-${tableKey}`} className="border rounded-lg p-3">
-                  <div className="font-medium text-gray-800 mb-2">표 입력</div>
-                  <div className="overflow-auto">
-                    <table className="min-w-full text-xs border">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          {Array.from({ length: cols }).map((_, ci) => (
-                            <th key={`h-${ci}`} className="border px-2 py-1 text-left">{headers[ci] || `컬럼${ci+1}`}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.from({ length: rows }).map((_, ri) => (
-                          <tr key={`r-${ri}`}>
-                            {Array.from({ length: cols }).map((_, ci) => {
-                              // 1부터 시작하는 인덱스로 변경
-                              const rowIndex = ri + 1;
-                              const colIndex = ci + 1;
-                              const key = `${tableKey}:${rowIndex}:${colIndex}`;
-                              const val = tableDataMap[key] || '';
-                              const fontSize = tableFontSizeMap[key] || 10;
-                              
-                              return (
-                                <td key={`c-${ci}`} className="border px-1 py-1">
-                                  <div className="space-y-1">
-                                    <input
-                                      type="text"
-                                      value={val}
-                                      onChange={(e) => {
-                                        const newValue = e.target.value;
-                                        console.log('📝 표 데이터 입력:', {
-                                          tableKey,
-                                          rowIndex,
-                                          colIndex,
-                                          key,
-                                          newValue,
-                                          currentTableDataMap: tableDataMap
-                                        });
-                                        
-                                        setTableDataMap(prev => {
-                                          const updated = { ...prev, [key]: newValue };
-                                          console.log('📝 tableDataMap 업데이트:', updated);
-                                          return updated;
-                                        });
-                                        
-                                        // 디바운스된 저장 함수 호출
-                                        debouncedSaveTableData(tableKey, rowIndex, colIndex, newValue, fontSize);
-                                      }}
-                                      className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
-                                      placeholder={`${rowIndex}-${colIndex}`}
-                                    />
-                                    <div className="flex items-center gap-1">
-                                      <label className="text-xs text-gray-500">크기:</label>
-                                      <input
-                                        type="number"
-                                        min={8}
-                                        max={20}
-                                        value={fontSize}
-                                        onChange={(e) => {
-                                          const newFontSize = parseInt(e.target.value) || 10;
-                                          setTableFontSizeMap(prev => ({ ...prev, [key]: newFontSize }));
-                                          
-                                          // 값이 있으면 폰트 크기도 함께 저장
-                                          if (val.trim()) {
-                                            debouncedSaveTableData(tableKey, rowIndex, colIndex, val, newFontSize);
-                                          }
-                                        }}
-                                        className="w-12 px-1 py-0.5 border border-gray-300 rounded text-xs"
-                                      />
-                                      <span className="text-xs text-gray-400">px</span>
-                                    </div>
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })}
             
             {coordinateFields.length === 0 && (
               <div className="text-center py-8 text-gray-500">
@@ -1277,6 +1222,34 @@ const DocumentEditor: React.FC = () => {
           documentTitle={currentDocument.template.name || '문서'}
         />
       )}
+
+      {/* 테이블 셀 편집 모달 */}
+      <TableCellEditModal
+        isOpen={isTableCellEditOpen}
+        onClose={() => {
+          setIsTableCellEditOpen(false);
+          setEditingCell(null);
+        }}
+        onSave={handleTableCellSave}
+        currentText={
+          editingCell ? (() => {
+            try {
+              const field = coordinateFields.find(f => f.id === editingCell.fieldKey);
+              if (field?.value) {
+                const tableData = JSON.parse(field.value);
+                return tableData.cells?.[editingCell.row]?.[editingCell.col] || '';
+              }
+            } catch {
+              // JSON 파싱 실패 시 빈 문자열 반환
+            }
+            return '';
+          })() : ''
+        }
+        cellPosition={editingCell ? { row: editingCell.row, col: editingCell.col } : { row: 0, col: 0 }}
+        tableName={
+          editingCell ? coordinateFields.find(f => f.id === editingCell.fieldKey)?.label || '' : ''
+        }
+      />
     </div>
   );
 };
